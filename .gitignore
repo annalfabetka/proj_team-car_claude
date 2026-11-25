@@ -1,0 +1,11 @@
+# Osobní data hráček (adresy) nikdy nenahrávat do veřejného repozitáře.
+# Export soupisky z aplikace se jmenuje spolujizdy-soupiska.json.
+spolujizdy-soupiska*.json
+*soupiska*.json
+*.csv
+*.xlsx
+
+# Obecné
+node_modules/
+.DS_Store
+*.log
