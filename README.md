@@ -1,71 +1,74 @@
 # Spolujízdy na zápasy
 
-Webová aplikace, která týmu navrhne, kdo pojede autem, koho vyzvedne a v jakém pořadí, aby cesta do haly byla co nejkratší. Každá hráčka si sama zadá svou adresu a vybere stav, organizátorka nemusí nikoho obtěžovat dotazy.
+Webová aplikace, která týmu navrhne, kdo pojede autem, koho vyzvedne a v jakém pořadí, aby cesta do haly byla co nejkratší.
 
-Živá verze: https://annalfabetka.github.io/proj_team-car_claude/
+Živá verze: https://annalfabetka.github.io/proj_team-car_claude/ (rozcestník)
 
-## Jak se používá
+K dispozici jsou dvě verze vedle sebe. Plánovač (výpočet tras) mají společný.
 
-1. **Hráčka** otevře odkaz týmu, přidá se tlačítkem „+ Přidat hráčku“, vyplní jméno a adresu a vybere stav:
-   - **Určitě beru auto**: pojede jako řidička a vyplní počet míst (včetně sebe).
-   - **Můžu vzít auto**: pojede autem, jen když to plánovači vyjde. Vybere ji podle bydliště.
-   - **Potřebuji odvoz**: pojede jako spolucestující.
-   - **Nejedu**: do plánu se nepočítá.
-2. Kdokoli zadá **adresu haly** a **čas příjezdu** a klikne na **Naplánovat jízdy**. Výsledkem jsou auta s časy výjezdu a vyzvednutí, mapa a hotová zpráva do skupiny.
-3. Před dalším zápasem tlačítko **Nový zápas: vynulovat stavy** všem smaže stav, adresy zůstanou.
+| Verze | Adresa | Pro koho |
+|---|---|---|
+| **Prototyp s Google tabulkou** | [`tabulka/`](tabulka/) | Hráčky vyplňují společnou Google tabulku, která sama kontroluje adresy. Aplikace z ní čte a plánuje. |
+| **Lokální verze** | [`lokalni/`](lokalni/) | Jedno zařízení bez sdílení. Soupisku zadává jedna osoba, uloží se jen v jejím prohlížeči. Nic se nenastavuje. |
 
-Změny jedné hráčky se ostatním objeví do několika sekund bez obnovení stránky. Co právě píšete, se při příchodu cizí změny nepřepíše.
+## Stavy hráček
 
-## Sdílený tým (Firebase) – jednorázové nastavení
+V obou verzích se u hráčky vybírá stav:
 
-Bez nastavení aplikace funguje jen na jednom zařízení (adresy se ukládají v prohlížeči). Aby si hráčky vyplňovaly údaje samy a všechny je viděly, je potřeba bezplatná databáze Firebase (Firestore). Nastavení trvá asi 10 minut a děláte ho jednou.
+- **Určitě beru auto**: pojede jako řidička. Vyplní počet míst v autě (včetně sebe).
+- **Můžu vzít auto**: pojede autem, jen když to plánovači vyjde. Vybere ji podle bydliště.
+- **Potřebuji odvoz**: pojede jako spolucestující.
+- **Nejedu**: do plánu se nepočítá.
 
-1. Na https://console.firebase.google.com klikněte na **Add project**, zvolte název (např. `spolujizdy`) a Google Analytics vypněte.
-2. V menu **Build → Firestore Database → Create database**. Umístění zvolte v Evropě (např. `eur3` nebo `europe-west3`) a režim **Production mode**.
-3. Na záložce **Rules** nahraďte obsah pravidly níže a klikněte na **Publish**:
+Hráčky s prázdným stavem se do plánu nepočítají a aplikace na ně upozorní.
 
-   ```
-   rules_version = '2';
-   service cloud.firestore {
-     match /databases/{database}/documents {
-       match /teams/{teamId}/{document=**} {
-         allow read, write: if true;
-       }
-     }
-   }
-   ```
+---
 
-   Pravidla pouští k datům jen toho, kdo zná dlouhý náhodný identifikátor týmu z odkazu. Výpis všech týmů pravidla nedovolují.
-4. Ozubené kolečko **Project settings → General → Your apps → ikona webu `</>`**: zaregistrujte aplikaci (hosting nezapínejte) a z `firebaseConfig` opište `apiKey` a `projectId`.
-5. Vložte je do souboru [`config.js`](config.js) a změnu nahrajte do repozitáře. `apiKey` se do veřejného repozitáře dává záměrně, u webových aplikací Firebase to není tajemství.
-6. Otevřete web a klikněte na **Založit sdílený tým**. Dostanete odkaz, který pošlete hráčkám. Adresy, které jste už zadala, se do týmu přenesou.
+## Lokální verze (`lokalni/`)
 
-Volitelné zabezpečení klíče: v Google Cloud Console (**APIs & Services → Credentials**) omezte API klíč na vaši doménu (*HTTP referrers*) a na API *Cloud Firestore*.
+Bez nastavení. Otevřete stránku, zadejte hráčky (jméno, adresa, stav, případně počet míst), adresu haly a čas příjezdu a klikněte na **Naplánovat jízdy**. Výsledkem jsou auta s časy výjezdu a vyzvednutí, mapa a zpráva do skupiny.
 
-### Soukromí
+- Soupiska se ukládá jen v tomto prohlížeči. Na jiné zařízení ji přenesete tlačítkem **Stáhnout soubor** a **Nahrát soubor**.
+- Adresy se hledají přes OpenStreetMap Nominatim.
+- **Nový zápas: vynulovat stavy** smaže stavy, adresy zůstanou.
 
-- Kdo má odkaz týmu, vidí adresy všech a může je měnit. Odkaz posílejte jen do týmové skupiny. Je v něm za `#`, takže se neposílá na server při načtení stránky.
-- Adresy jsou uložené u Google (Firebase) v zvoleném regionu a při hledání souřadnic se posílají na OpenStreetMap Nominatim. Trasy počítá veřejný server OSRM.
-- Odkaz lze v aplikaci na daném zařízení odpojit tlačítkem „Odpojit toto zařízení od týmu“. Chcete-li tým zrušit úplně, smažte data v konzoli Firebase.
-- Soubor se zálohou soupisky (`spolujizdy-soupiska.json`) obsahuje adresy. Je v `.gitignore`, aby se omylem nenahrál do veřejného repozitáře.
+---
 
-## Vlastní doména
+## Prototyp s Google tabulkou (`tabulka/`)
 
-GitHub Pages umí vlastní doménu: v **Settings → Pages → Custom domain** zadejte např. `auta.vasedomena.cz`. U poskytovatele domény pak nastavte záznam **CNAME** pro `auta` na `annalfabetka.github.io` a po chvíli zapněte **Enforce HTTPS**. Doména není pro fungování aplikace nutná.
+Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sama ověřuje adresy přes Google Mapy, takže překlep se ukáže hned při psaní. Nepotřebujete žádnou databázi ani klíče. Nastavení trvá asi 10 minut.
 
-## Spuštění a vývoj
+### 1. Vytvoření tabulky
 
-Bez instalace. Otevřete `index.html` v prohlížeči nebo složku zveřejněte jako statický web.
+1. Na https://sheets.google.com vytvořte novou **prázdnou** tabulku.
+2. **Rozšíření → Apps Script**. Smažte vše, co tam je, a vložte obsah souboru [`tabulka/Kod.gs`](tabulka/Kod.gs). Uložte.
+3. V horní liště vyberte funkci **`nastavit`** a klikněte na **Spustit**. Google se zeptá na oprávnění (je to váš vlastní skript, pro Mapy a úpravu tabulky). Povolte je. Pokud se zobrazí „Aplikace není ověřena“, zvolte **Upřesnit → Přejít na … (nezabezpečeno)**.
+4. Tabulka se připraví: list **Tým** se záhlavím, rozbalovací nabídkou stavu, kontrolou počtu míst a barvami. Zkuste do sloupce **Adresa** napsat adresu. Vedle se objeví kontrola:
+   - `✓ Adresa nalezena`: v pořádku, vedle je nalezená adresa a souřadnice.
+   - `⚠ Zkontrolujte, zda nalezená adresa sedí`: Google si není jistý (překlep). Souřadnice se použijí, ale ověřte adresu.
+   - `⚠ Upřesněte adresu`: chybí ulice a číslo domu (např. jen „Praha“). Souřadnice se nevyplní.
+   - `✗ Adresa nenalezena`: zkuste tvar „Ulice číslo, Město“.
 
-```
-index.html   rozhraní
-app.js       rozhraní, ukládání, sdílení týmu, geokódování, mapa
-planner.js   vlastní plánování (čistá logika, bez závislostí)
-config.js    nastavení Firebase (prázdné = jen toto zařízení)
-test.js      testy plánovače
-```
+### 2. Sdílení a zveřejnění
 
-Testy plánovače: `node test.js`
+1. **Sdílet → Kdokoli s odkazem → Editor.** Tento odkaz pošlete hráčkám, aby si doplnily řádek.
+2. **Soubor → Sdílet → Publikovat na webu.** Vyberte list **Tým** a formát **CSV** a klikněte na **Publikovat**. Zkopírujte vzniklý odkaz. Aplikace z něj čte data.
+3. Otevřete [`tabulka/`](tabulka/) a vložte odkaz ze zveřejnění (a volitelně odkaz na úpravy tabulky). Aplikace vytvoří odkaz pro hráčky.
+
+**Rozložení listu Tým** (aplikace na něm závisí, rozložení neměňte): řádek 1 hala, řádek 2 čas příjezdu, řádek 4 záhlaví, od řádku 5 hráčky. Sloupce E–H se plní samy.
+
+**Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou.
+
+### Co je dobré vědět
+
+- **Zpoždění:** Google zveřejněnou tabulku obnovuje sám a změny se v aplikaci mohou objevit až za několik minut. Tlačítko **Obnovit** to neurychlí.
+- **Soukromí:** odkaz na zveřejněnou tabulku je veřejný, kdo ho zná, přečte všechny adresy. Je proto v adrese aplikace za `#` a **není v repozitáři**. Odkaz posílejte jen do týmové skupiny. Editační odkaz dává právo měnit data.
+- **Limity Google Map:** kontrola adres běží přes službu Mapy v Apps Scriptu a má denní limit (řádově tisíce adres). Pro tým to bohatě stačí, opakované adresy se navíc ukládají do cache.
+- **Aplikace z tabulky jen čte.** Přidávat a upravovat se musí v tabulce.
+- **Sloupce E–H** se doplňují po úpravě adresy. Když se někdy nedoplní, použijte **Spolujízdy → Zkontrolovat všechny adresy**.
+- **Neověřeno na ostrém Googlu:** logika skriptu je otestovaná proti simulované tabulce a čtení tabulky proti simulovanému CSV. První spuštění na skutečné tabulce proto berte jako zkoušku.
+
+---
 
 ## Jak plánovač rozhoduje
 
@@ -75,14 +78,37 @@ Testy plánovače: `node test.js`
 - Pro 10–15 lidí a 3–5 aut je výsledek skoro okamžitý. Test porovnává plánovač s úplným průchodem všech možností na malých úlohách a výsledek je stejný. U velkých týmů nemusí být rozdělení do aut vždy přesně nejlepší možné.
 - Nezohledňuje spravedlivé střídání řidiček, dopravní špičky, cestu zpět ani osobní preference.
 
-## Omezení
+Časy jízdy počítá veřejný server OSRM a adresy v lokální verzi hledá Nominatim. Obě služby jsou bez záruky dostupnosti. Když OSRM nefunguje, aplikace to oznámí a použije odhad vzdušnou čarou.
 
-- Nominatim občas nenajde neobvyklý zápis adresy. Zkuste „Ulice číslo, Město“.
-- Veřejné služby Nominatim a OSRM jsou bez záruky dostupnosti. Když OSRM nefunguje, aplikace to oznámí a použije odhad vzdušnou čarou.
-- Ve sdíleném týmu může kdokoli s odkazem upravit údaje kohokoli. Aplikace nerozlišuje uživatele.
+## Struktura repozitáře
+
+```
+index.html            rozcestník
+style.css             společné styly
+planner.js            plánovač (čistá logika, bez závislostí)
+common.js             společný kód: stavy, trasy, plán, mapa, zpráva do skupiny
+test.js               testy plánovače
+lokalni/              lokální verze (index.html, app.js)
+tabulka/              prototyp s Google tabulkou
+  index.html, app.js    stránka, která z tabulky čte
+  Kod.gs                skript do Google tabulky (kontrola adres, nastavení listu)
+  test-kod.js           testy skriptu proti simulované tabulce
+```
+
+Testy: `node test.js` (plánovač) a `node tabulka/test-kod.js` (skript tabulky).
+
+## Soukromí
+
+- Adresy hráček jsou osobní údaje. V lokální verzi zůstávají v prohlížeči. V tabulkové verzi jsou v Google tabulce a jejím zveřejněném CSV.
+- Soubor se zálohou soupisky (`spolujizdy-soupiska.json`) obsahuje adresy. Je v `.gitignore`, aby se omylem nenahrál do veřejného repozitáře.
+
+## Historie: verze s Firebase
+
+Dříve vznikla i verze se sdílenou databází Firebase (hráčky vyplňují přímo v aplikaci a změny se projeví do několika sekund). Do současné struktury nepatří, ale je zachovaná v historii gitu v commitu `ec6050b` (`git show ec6050b --stat`). Dá se k ní vrátit, pokud pilot s tabulkou nebude stačit.
 
 ## Možná rozšíření
 
 - Spravedlivé střídání řidiček (počítat, kdo kolikrát řídil).
 - Omezení „raději nejede s…“.
+- Rychlejší aktualizace než zveřejněné CSV (Google Sheets API s klíčem z vašeho Cloud projektu).
 - Uložené haly a kalendář zápasů.
