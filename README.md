@@ -53,9 +53,12 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 
 1. **Sdílet → Kdokoli s odkazem → Editor.** Tento odkaz pošlete hráčkám, aby si doplnily řádek.
 2. **Soubor → Sdílet → Publikovat na webu.** Vyberte list **Tým** a formát **CSV** a klikněte na **Publikovat**. Zkopírujte vzniklý odkaz. Aplikace z něj čte data.
-3. Otevřete [`tabulka/`](tabulka/) a vložte odkaz ze zveřejnění (a volitelně odkaz na úpravy tabulky). Aplikace vytvoří odkaz pro hráčky.
+3. **Vložte tento odkaz do žlutého pole v prvním řádku tabulky** (řádek „Odkaz na zveřejněnou tabulku“). Pak je vždy po ruce a nemusíte ho znovu hledat v nastavení zveřejnění. Skript ho sám zjistit neumí, vkládá se jednou ručně.
+4. Otevřete [`tabulka/`](tabulka/) a vložte tentýž odkaz (a volitelně odkaz na úpravy tabulky). Aplikace vytvoří odkaz pro hráčky.
 
-**Rozložení listu Tým** (aplikace na něm závisí, rozložení neměňte): řádek 1 hala, řádek 2 čas příjezdu, řádek 4 záhlaví, od řádku 5 hráčky. Sloupce E–H se plní samy.
+**Rozložení listu Tým:** řádek 1 odkaz na zveřejněnou tabulku, řádek 2 hala, řádek 3 čas příjezdu, řádek 5 záhlaví, od řádku 6 hráčky. Sloupce E–H se plní samy. Aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Čas…“, „Jméno“), proto je nepřejmenovávejte.
+
+**Starší tabulka (bez řádku s odkazem):** nejdřív vložte novou verzi skriptu `Kod.gs` a pak v nabídce **Spolujízdy → Aktualizovat starší tabulku** (nebo spusťte funkci `migrovat`). Skript nahoru vloží řádek pro odkaz a **nic nesmaže**. Funkci `nastavit` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
 
 **Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou.
 

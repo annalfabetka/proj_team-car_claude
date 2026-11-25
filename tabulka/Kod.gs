@@ -11,17 +11,23 @@
  *  - přidá nabídku „Spolujízdy“ (zkontrolovat všechny adresy, nový zápas).
  *
  * Rozložení listu:
- *   řádek 1  A: „Hala (adresa)“     B: adresa haly       E–H: kontrola (automaticky)
- *   řádek 2  A: „Čas příjezdu…“     B: např. 18:30
- *   řádek 4  záhlaví: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
- *   řádek 5+ hráčky
+ *   řádek 1  A: „Odkaz na zveřejněnou tabulku“   B: sem jednou vložte odkaz ze „Publikovat na webu“
+ *   řádek 2  A: „Hala (adresa)“                  B: adresa haly       E–H: kontrola (automaticky)
+ *   řádek 3  A: „Čas příjezdu…“                  B: např. 18:30
+ *   řádek 5  záhlaví: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
+ *   řádek 6+ hráčky
+ *
+ * Plánovací aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Čas…“, „Jméno“),
+ * proto je neměňte.
  */
 
 var SHEET_NAME = 'Tým';
-var HALL_ROW = 1;
-var TIME_ROW = 2;
-var HEADER_ROW = 4;
-var FIRST_ROW = 5;
+var LINK_ROW = 1;
+var HALL_ROW = 2;
+var TIME_ROW = 3;
+var NOTE_ROW = 4;
+var HEADER_ROW = 5;
+var FIRST_ROW = 6;
 var LAST_ROW = 200;
 var MAX_ROWS_PER_EDIT = 30;
 var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8 };
@@ -35,8 +41,18 @@ var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
 
 function nastavit() {
   var ss = SpreadsheetApp.getActive();
+  var ui = SpreadsheetApp.getUi();
   var sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) {
+  var savedLink = '';
+  if (sh) {
+    // opakované spuštění by smazalo data, proto se nejdřív zeptáme
+    var hasData = sh.getLastRow() >= FIRST_ROW &&
+      sh.getRange(FIRST_ROW, 1, sh.getLastRow() - FIRST_ROW + 1, 2).getValues()
+        .some(function (r) { return String(r[0] || r[1]).trim() !== ''; });
+    if (hasData && ui.alert('List „' + SHEET_NAME + '“ už obsahuje hráčky. Nastavení je přepíše. Pokračovat?',
+        ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
+    savedLink = String(sh.getRange(LINK_ROW, COL.ADDR).getValue() || '');
+  } else {
     var first = ss.getSheets()[0];
     if (ss.getSheets().length === 1 && first.getLastRow() <= 1 && first.getLastColumn() <= 1) {
       sh = first; sh.setName(SHEET_NAME);
@@ -48,22 +64,26 @@ function nastavit() {
   sh.clearConditionalFormatRules();
 
   // popisky
-  sh.getRange('A1').setValue('Hala (adresa)');
-  sh.getRange('A2').setValue('Čas příjezdu do haly');
-  sh.getRange('B2').setNumberFormat('@').setValue('18:30');
-  sh.getRange('A3').setValue('Vyplňujte jen bílá pole. Sloupce E–H se doplní samy.');
+  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz na zveřejněnou tabulku');
+  sh.getRange(LINK_ROW, COL.ADDR).setNumberFormat('@').setValue(savedLink);
+  sh.getRange(HALL_ROW, COL.NAME).setValue('Hala (adresa)');
+  sh.getRange(TIME_ROW, COL.NAME).setValue('Čas příjezdu do haly');
+  sh.getRange(TIME_ROW, COL.ADDR).setNumberFormat('@').setValue('18:30');
+  sh.getRange(NOTE_ROW, COL.NAME).setValue(
+    'Vyplňujte jen bílá pole. Sloupce E–H se doplní samy. Odkaz v prvním řádku vložte po zveřejnění tabulky (Soubor → Sdílet → Publikovat na webu → CSV).');
   sh.getRange(HEADER_ROW, 1, 1, 8).setValues([[
     'Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']]);
 
   // vzhled
-  sh.getRange('A1:A2').setFontWeight('bold');
-  sh.getRange('A3').setFontStyle('italic').setFontColor('#6a7385');
+  sh.getRange(LINK_ROW, COL.NAME, TIME_ROW, 1).setFontWeight('bold');
+  sh.getRange(LINK_ROW, COL.ADDR).setBackground('#fff8d6'); // pole k vložení odkazu
+  sh.getRange(NOTE_ROW, COL.NAME).setFontStyle('italic').setFontColor('#6a7385');
   sh.getRange(HEADER_ROW, 1, 1, 8).setFontWeight('bold').setBackground('#e8eaf0');
-  sh.getRange(1, COL.CHECK, 2, 4).setBackground('#f3f4f7');
+  sh.getRange(HALL_ROW, COL.CHECK, 2, 4).setBackground('#f3f4f7');
   sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).setBackground('#f3f4f7');
-  sh.getRange(1, COL.LAT, LAST_ROW, 2).setFontColor('#8a93a5');
+  sh.getRange(HALL_ROW, COL.LAT, LAST_ROW - HALL_ROW + 1, 2).setFontColor('#8a93a5');
   sh.setFrozenRows(HEADER_ROW);
-  sh.setColumnWidth(COL.NAME, 150);
+  sh.setColumnWidth(COL.NAME, 190);
   sh.setColumnWidth(COL.ADDR, 280);
   sh.setColumnWidth(COL.STATUS, 160);
   sh.setColumnWidth(COL.SEATS, 90);
@@ -73,7 +93,7 @@ function nastavit() {
   sh.setColumnWidth(COL.LON, 90);
 
   // souřadnice jako text, aby se nepletla desetinná čárka a tečka
-  sh.getRange(1, COL.LAT, LAST_ROW, 2).setNumberFormat('@');
+  sh.getRange(HALL_ROW, COL.LAT, LAST_ROW - HALL_ROW + 1, 2).setNumberFormat('@');
 
   // ověřování vstupů
   var statusRule = SpreadsheetApp.newDataValidation().requireValueInList(STATUSES, true)
@@ -83,14 +103,15 @@ function nastavit() {
     .setAllowInvalid(false).setHelpText('Počet míst v autě včetně řidičky (2–9).').build();
   sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsRule);
   var timeRule = SpreadsheetApp.newDataValidation()
-    .requireFormulaSatisfied('=REGEXMATCH(TO_TEXT(B2),"^\\d{1,2}[:.]\\d{2}$")')
+    .requireFormulaSatisfied('=REGEXMATCH(TO_TEXT(B' + TIME_ROW + '),"^\\d{1,2}[:.]\\d{2}$")')
     .setAllowInvalid(false).setHelpText('Čas ve tvaru 18:30.').build();
-  sh.getRange('B2').setDataValidation(timeRule);
+  sh.getRange(TIME_ROW, COL.ADDR).setDataValidation(timeRule);
 
   // barevné upozornění
-  var checkRange = [sh.getRange(1, COL.CHECK, 1, 1),
+  var checkRange = [sh.getRange(HALL_ROW, COL.CHECK, 1, 1),
     sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 1)];
   var seatsRange = sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1);
+  var r = FIRST_ROW;
   sh.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith('✗')
       .setBackground('#f8d7da').setFontColor('#a4262c').setRanges(checkRange).build(),
@@ -99,14 +120,14 @@ function nastavit() {
     SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith('✓')
       .setFontColor('#1a7f3c').setRanges(checkRange).build(),
     SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND(OR($C5="Určitě beru auto",$C5="Můžu vzít auto"),NOT(ISNUMBER($D5)))')
+      .whenFormulaSatisfied('=AND(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"),NOT(ISNUMBER($D' + r + ')))')
       .setBackground('#ffe8b3').setRanges([seatsRange]).build(),
   ]);
 
-  // automatické sloupce chrání před nechtěným přepsáním (jen varování)
-  sh.getRange('A1:A4').protect().setWarningOnly(true);
+  // popisky, záhlaví a automatické sloupce chrání před nechtěným přepsáním (jen varování)
+  sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1).protect().setWarningOnly(true);
   sh.getRange(HEADER_ROW, 1, 1, 8).protect().setWarningOnly(true);
-  sh.getRange(1, COL.CHECK, 2, 4).protect().setWarningOnly(true);
+  sh.getRange(HALL_ROW, COL.CHECK, 2, 4).protect().setWarningOnly(true);
   sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).protect().setWarningOnly(true);
 
   // spouštěč po úpravě (musí být „instalovaný“, aby směl volat Mapy)
@@ -115,7 +136,8 @@ function nastavit() {
   });
   ScriptApp.newTrigger('priUprave').forSpreadsheet(ss).onEdit().create();
 
-  SpreadsheetApp.getUi().alert('Hotovo. Do sloupce „Adresa“ zkuste napsat adresu, vedle se objeví kontrola.');
+  ui.alert('Hotovo. Do sloupce „Adresa“ zkuste napsat adresu, vedle se objeví kontrola. ' +
+    'Až tabulku zveřejníte, vložte odkaz do žlutého pole v prvním řádku.');
 }
 
 /* ---------- nabídka ---------- */
@@ -124,6 +146,8 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Spolujízdy')
     .addItem('Zkontrolovat všechny adresy', 'zkontrolovatVse')
     .addItem('Nový zápas (vymazat stavy)', 'novyZapas')
+    .addSeparator()
+    .addItem('Aktualizovat starší tabulku (řádek s odkazem)', 'migrovat')
     .addToUi();
 }
 
@@ -141,6 +165,24 @@ function novyZapas() {
   if (ui.alert('Vymazat stav všech hráček pro nový zápas?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).clearContent();
+}
+
+/**
+ * Starší tabulka měla v 1. řádku halu. Tato funkce nahoru vloží řádek pro odkaz a nic nemaže:
+ * hráčky, adresy ani stavy zůstanou. Spusťte ji hned po vložení nové verze skriptu.
+ */
+function migrovat() {
+  var ui = SpreadsheetApp.getUi();
+  var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
+  if (!sh) { ui.alert('List „' + SHEET_NAME + '“ nenalezen. Spusťte funkci „nastavit“.'); return; }
+  var a1 = String(sh.getRange(1, COL.NAME).getValue()).toLowerCase();
+  if (a1.indexOf('odkaz') === 0) { ui.alert('Tabulka už má nové rozložení (řádek s odkazem), nic se neměnilo.'); return; }
+  if (a1.indexOf('hala') !== 0) { ui.alert('Rozložení listu nepoznávám, nic jsem neměnil.'); return; }
+  sh.insertRowBefore(LINK_ROW);
+  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz na zveřejněnou tabulku').setFontWeight('bold');
+  sh.getRange(LINK_ROW, COL.ADDR).setValue('').setNumberFormat('@').setBackground('#fff8d6');
+  sh.setFrozenRows(HEADER_ROW);
+  ui.alert('Hotovo. Do žlutého pole v prvním řádku vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“.');
 }
 
 /* ---------- kontrola po úpravě ---------- */
