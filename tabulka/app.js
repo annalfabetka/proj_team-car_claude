@@ -39,6 +39,8 @@
     people: [],
     hall: { address: '', lat: null, lon: null, label: '', fail: false },
     arrive: '18:00',
+    date: null,        // Date zápasu (půlnoc místního času) nebo null
+    dateText: '',      // např. „středa 2. 12. 2026“
     settings: { carPenalty: 20, maxDetour: 20, stopMin: 2 },
   };
   try { Object.assign(state.settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch (e) { /* ignoruj */ }
@@ -79,10 +81,32 @@
       lat: cellNum(r[6]), lon: cellNum(r[7]), fail: check.startsWith('✗'), warn: check.startsWith('⚠'),
     };
   }
+  // Datum z publikovaného CSV: „2. 12. 2026“ (formát nastavuje skript), pro jistotu i 2026-12-02 a 12/2/2026.
+  function parseDate(txt) {
+    const s = String(txt || '').trim();
+    let m, y, mo, d;
+    if ((m = /^(\d{1,2})\.\s*(\d{1,2})\.\s*(\d{4})/.exec(s))) { d = +m[1]; mo = +m[2]; y = +m[3]; }
+    else if ((m = /^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = /^(\d{1,2})\/(\d{1,2})\/(\d{4})/.exec(s))) { mo = +m[1]; d = +m[2]; y = +m[3]; }
+    else return null;
+    const dt = new Date(y, mo - 1, d);
+    return dt.getFullYear() === y && dt.getMonth() === mo - 1 && dt.getDate() === d ? dt : null;
+  }
+  const WEEKDAYS = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
+  const formatDate = dt => `${WEEKDAYS[dt.getDay()]} ${dt.getDate()}. ${dt.getMonth() + 1}. ${dt.getFullYear()}`;
+  // upozornění na chybějící nebo staré datum: právě tak poznáte, že stavy v tabulce jsou ze starého zápasu
+  function dateWarning() {
+    if (!state.date) return 'Datum zápasu není vyplněné v tabulce, nejde poznat, ke kterému zápasu stavy patří.';
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    if (state.date < today) return `Datum zápasu (${state.dateText}) je v minulosti, stavy v tabulce jsou nejspíš staré. Nový zápas nastavíte v tabulce (Spolujízdy → Nový zápas).`;
+    return '';
+  }
+
   function parseSheet(text) {
     const rows = parseCsv(text);
     const hallRow = rows.find(r => plain(r[0]).startsWith('hala'));
     const timeRow = rows.find(r => plain(r[0]).startsWith('cas'));
+    const dateRow = rows.find(r => plain(r[0]).startsWith('datum'));
     const hdr = rows.findIndex(r => plain(r[0]) === 'jmeno');
     if (hdr < 0) throw new Error('format');
     const people = [];
@@ -96,6 +120,7 @@
     const m = timeRow && /(\d{1,2})[:.](\d{2})/.exec(timeRow[1] || '');
     return {
       people, hall: hallRow ? sheetPlace(hallRow) : null,
+      date: dateRow ? parseDate(dateRow[1]) : null,
       arrive: m ? String(m[1]).padStart(2, '0') + ':' + m[2] : null,
     };
   }
@@ -123,8 +148,14 @@
       state.hall = { address: h.address, lat: h.lat, lon: h.lon, label: h.label, fail: h.fail, warn: h.warn, check: h.check };
     }
     if (parsed.arrive) state.arrive = parsed.arrive;
+    state.date = parsed.date; state.dateText = parsed.date ? formatDate(parsed.date) : '';
     $('hall').value = state.hall.address; $('arrive').value = state.arrive;
+    $('matchDate').value = state.dateText;
     renderHallStatus();
+    const w = dateWarning();
+    $('dateStatus').textContent = w ? '⚠ ' + (state.date ? 'datum je v minulosti, stavy jsou nejspíš staré' : 'datum zápasu chybí') : '';
+    $('dateStatus').className = 'geo bad';
+    $('dateStatus').title = w;
     const sig = JSON.stringify(state.people);
     if (sig !== lastSig) { lastSig = sig; renderRoster(); }
   }
@@ -227,6 +258,7 @@
   setupPlan({
     getState: () => state,
     hint: () => ' Podívejte se do sloupce „Kontrola adresy“ v tabulce.',
+    warnings: () => [dateWarning()].filter(Boolean),
   });
 
   // ---------- start ----------

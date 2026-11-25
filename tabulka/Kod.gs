@@ -13,24 +13,27 @@
  * Rozložení listu:
  *   řádek 1  A: „Odkaz na zveřejněnou tabulku“   B: sem jednou vložte odkaz ze „Publikovat na webu“
  *   řádek 2  A: „Hala (adresa)“                  B: adresa haly       E–H: kontrola (automaticky)
- *   řádek 3  A: „Čas příjezdu…“                  B: např. 18:30
- *   řádek 5  záhlaví: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
- *   řádek 6+ hráčky
+ *   řádek 3  A: „Datum zápasu“                   B: datum, C: den v týdnu (automaticky)
+ *   řádek 4  A: „Čas příjezdu…“                  B: např. 18:30
+ *   řádek 6  záhlaví: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
+ *   řádek 7+ hráčky
  *
- * Plánovací aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Čas…“, „Jméno“),
+ * Plánovací aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Datum…“, „Čas…“, „Jméno“),
  * proto je neměňte.
  */
 
 var SHEET_NAME = 'Tým';
 var LINK_ROW = 1;
 var HALL_ROW = 2;
-var TIME_ROW = 3;
-var NOTE_ROW = 4;
-var HEADER_ROW = 5;
-var FIRST_ROW = 6;
+var DATE_ROW = 3;
+var TIME_ROW = 4;
+var NOTE_ROW = 5;
+var HEADER_ROW = 6;
+var FIRST_ROW = 7;
 var LAST_ROW = 200;
 var MAX_ROWS_PER_EDIT = 30;
 var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8 };
+var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
 var STATUSES = ['Určitě beru auto', 'Můžu vzít auto', 'Potřebuji odvoz', 'Nejedu'];
 
 // Typy výsledků, které považujeme za dost přesné pro vyzvednutí (ulice + číslo / konkrétní místo).
@@ -38,6 +41,41 @@ var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
   'point_of_interest', 'park', 'airport', 'train_station', 'transit_station'];
 
 /* ---------- jednorázové nastavení ---------- */
+
+/* ---------- sdílené přípravy řádků (používá nastavit i migrovat) ---------- */
+
+function pripravRadekOdkazu(sh, savedLink) {
+  sh.getRange(LINK_ROW, 1, 1, 8).clearFormat();
+  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz na zveřejněnou tabulku').setFontWeight('bold');
+  sh.getRange(LINK_ROW, COL.ADDR).setNumberFormat('@').setValue(savedLink || '').setBackground('#fff8d6'); // pole k vložení odkazu
+}
+
+function pripravRadekDatumu(sh) {
+  sh.getRange(DATE_ROW, 1, 1, 8).clearFormat();
+  sh.getRange(DATE_ROW, COL.NAME).setValue('Datum zápasu').setFontWeight('bold');
+  sh.getRange(DATE_ROW, COL.ADDR).setNumberFormat('d. M. yyyy').setValue('');
+  var dateRule = SpreadsheetApp.newDataValidation().requireDate()
+    .setAllowInvalid(false).setHelpText('Datum zápasu, např. 2. 12. 2026.').build();
+  sh.getRange(DATE_ROW, COL.ADDR).setDataValidation(dateRule);
+  // den v týdnu se doplní sám (česky, nezávisle na jazyku tabulky)
+  var b = 'B' + DATE_ROW;
+  sh.getRange(DATE_ROW, COL.STATUS).setFormula('=IF(' + b + '="","",IFERROR(CHOOSE(WEEKDAY(' + b + ',2),"' +
+    WEEKDAYS.join('","') + '"),""))').setBackground('#f3f4f7');
+  sh.getRange(DATE_ROW, COL.CHECK, 1, 4).setBackground('#f3f4f7');
+}
+
+/** Pravidla barev pro datum: žlutě když chybí, červeně když je v minulosti (staré stavy). */
+function pravidlaDatumu(sh) {
+  var range = [sh.getRange(DATE_ROW, COL.ADDR)];
+  var b = '$B$' + DATE_ROW;
+  return [
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=' + b + '=""')
+      .setBackground('#ffe8b3').setRanges(range).build(),
+    SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied('=AND(ISNUMBER(' + b + '),' + b + '<TODAY())')
+      .setBackground('#f8d7da').setFontColor('#a4262c').setRanges(range).build(),
+  ];
+}
+
 
 function nastavit() {
   var ss = SpreadsheetApp.getActive();
@@ -64,9 +102,9 @@ function nastavit() {
   sh.clearConditionalFormatRules();
 
   // popisky
-  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz na zveřejněnou tabulku');
-  sh.getRange(LINK_ROW, COL.ADDR).setNumberFormat('@').setValue(savedLink);
+  pripravRadekOdkazu(sh, savedLink);
   sh.getRange(HALL_ROW, COL.NAME).setValue('Hala (adresa)');
+  pripravRadekDatumu(sh);
   sh.getRange(TIME_ROW, COL.NAME).setValue('Čas příjezdu do haly');
   sh.getRange(TIME_ROW, COL.ADDR).setNumberFormat('@').setValue('18:30');
   sh.getRange(NOTE_ROW, COL.NAME).setValue(
@@ -76,10 +114,9 @@ function nastavit() {
 
   // vzhled
   sh.getRange(LINK_ROW, COL.NAME, TIME_ROW, 1).setFontWeight('bold');
-  sh.getRange(LINK_ROW, COL.ADDR).setBackground('#fff8d6'); // pole k vložení odkazu
   sh.getRange(NOTE_ROW, COL.NAME).setFontStyle('italic').setFontColor('#6a7385');
   sh.getRange(HEADER_ROW, 1, 1, 8).setFontWeight('bold').setBackground('#e8eaf0');
-  sh.getRange(HALL_ROW, COL.CHECK, 2, 4).setBackground('#f3f4f7');
+  sh.getRange(HALL_ROW, COL.CHECK, TIME_ROW - HALL_ROW + 1, 4).setBackground('#f3f4f7');
   sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).setBackground('#f3f4f7');
   sh.getRange(HALL_ROW, COL.LAT, LAST_ROW - HALL_ROW + 1, 2).setFontColor('#8a93a5');
   sh.setFrozenRows(HEADER_ROW);
@@ -122,12 +159,13 @@ function nastavit() {
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied('=AND(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"),NOT(ISNUMBER($D' + r + ')))')
       .setBackground('#ffe8b3').setRanges([seatsRange]).build(),
-  ]);
+  ].concat(pravidlaDatumu(sh)));
 
   // popisky, záhlaví a automatické sloupce chrání před nechtěným přepsáním (jen varování)
   sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1).protect().setWarningOnly(true);
   sh.getRange(HEADER_ROW, 1, 1, 8).protect().setWarningOnly(true);
-  sh.getRange(HALL_ROW, COL.CHECK, 2, 4).protect().setWarningOnly(true);
+  sh.getRange(HALL_ROW, COL.CHECK, TIME_ROW - HALL_ROW + 1, 4).protect().setWarningOnly(true);
+  sh.getRange(DATE_ROW, COL.STATUS).protect().setWarningOnly(true);
   sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).protect().setWarningOnly(true);
 
   // spouštěč po úpravě (musí být „instalovaný“, aby směl volat Mapy)
@@ -137,7 +175,7 @@ function nastavit() {
   ScriptApp.newTrigger('priUprave').forSpreadsheet(ss).onEdit().create();
 
   ui.alert('Hotovo. Do sloupce „Adresa“ zkuste napsat adresu, vedle se objeví kontrola. ' +
-    'Až tabulku zveřejníte, vložte odkaz do žlutého pole v prvním řádku.');
+    'Nastavte datum zápasu a až tabulku zveřejníte, vložte odkaz do žlutého pole v prvním řádku.');
 }
 
 /* ---------- nabídka ---------- */
@@ -147,7 +185,7 @@ function onOpen() {
     .addItem('Zkontrolovat všechny adresy', 'zkontrolovatVse')
     .addItem('Nový zápas (vymazat stavy)', 'novyZapas')
     .addSeparator()
-    .addItem('Aktualizovat starší tabulku (řádek s odkazem)', 'migrovat')
+    .addItem('Aktualizovat starší tabulku (nové řádky)', 'migrovat')
     .addToUi();
 }
 
@@ -165,24 +203,40 @@ function novyZapas() {
   if (ui.alert('Vymazat stav všech hráček pro nový zápas?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).clearContent();
+  ui.alert('Stavy jsou vymazané. Nezapomeňte nastavit nové datum zápasu (řádek „Datum zápasu“).');
 }
 
 /**
- * Starší tabulka měla v 1. řádku halu. Tato funkce nahoru vloží řádek pro odkaz a nic nemaže:
+ * Doplní do starší tabulky nové řádky (odkaz na zveřejněnou tabulku, datum zápasu) a nic nemaže:
  * hráčky, adresy ani stavy zůstanou. Spusťte ji hned po vložení nové verze skriptu.
+ * Funguje pro libovolnou starší verzi, doplní jen to, co chybí.
  */
 function migrovat() {
   var ui = SpreadsheetApp.getUi();
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   if (!sh) { ui.alert('List „' + SHEET_NAME + '“ nenalezen. Spusťte funkci „nastavit“.'); return; }
-  var a1 = String(sh.getRange(1, COL.NAME).getValue()).toLowerCase();
-  if (a1.indexOf('odkaz') === 0) { ui.alert('Tabulka už má nové rozložení (řádek s odkazem), nic se neměnilo.'); return; }
-  if (a1.indexOf('hala') !== 0) { ui.alert('Rozložení listu nepoznávám, nic jsem neměnil.'); return; }
-  sh.insertRowBefore(LINK_ROW);
-  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz na zveřejněnou tabulku').setFontWeight('bold');
-  sh.getRange(LINK_ROW, COL.ADDR).setValue('').setNumberFormat('@').setBackground('#fff8d6');
+  var label = function (r) { return String(sh.getRange(r, COL.NAME).getValue()).toLowerCase(); };
+  var first = label(1);
+  if (first.indexOf('odkaz') !== 0 && first.indexOf('hala') !== 0) {
+    ui.alert('Rozložení listu nepoznávám, nic jsem neměnil.'); return;
+  }
+  var added = [];
+  if (label(LINK_ROW).indexOf('odkaz') !== 0) {
+    sh.insertRowBefore(LINK_ROW);
+    pripravRadekOdkazu(sh, '');
+    added.push('řádek s odkazem');
+  }
+  if (label(DATE_ROW).indexOf('datum') !== 0) {
+    if (label(HALL_ROW).indexOf('hala') !== 0) { ui.alert('Rozložení listu nepoznávám, nic jsem neměnil.'); return; }
+    sh.insertRowBefore(DATE_ROW);
+    pripravRadekDatumu(sh);
+    sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat(pravidlaDatumu(sh)));
+    added.push('řádek s datem zápasu');
+  }
+  if (!added.length) { ui.alert('Tabulka už má nové rozložení, nic se neměnilo.'); return; }
   sh.setFrozenRows(HEADER_ROW);
-  ui.alert('Hotovo. Do žlutého pole v prvním řádku vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“.');
+  ui.alert('Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
+    (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.');
 }
 
 /* ---------- kontrola po úpravě ---------- */

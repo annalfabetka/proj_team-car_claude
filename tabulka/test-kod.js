@@ -18,6 +18,7 @@ function makeRange(sheet, r, c, nr = 1, nc = 1) {
     getValue: () => (cells.has(key(r, c)) ? cells.get(key(r, c)) : ''),
     getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => cells.get(key(r + i, c + j)) ?? '')),
     setValue: v => { cells.set(key(r, c), v); return proxied; },
+    setFormula: f => { cells.set(key(r, c), f); return proxied; },
     setValues: vs => { vs.forEach((row, i) => row.forEach((v, j) => cells.set(key(r + i, c + j), v))); return proxied; },
     clearContent: () => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) cells.delete(key(r + i, c + j)); return proxied; },
     protect: () => ({ setWarningOnly: () => {} }),
@@ -30,6 +31,7 @@ const sheet = {
   getName: () => 'Tým', setName() {},
   getLastRow: () => Math.max(0, ...[...cells.keys()].map(k => +k.split(',')[0])),
   getLastColumn: () => 8,
+  getConditionalFormatRules: () => [],
   clear: () => cells.clear(),
   insertRowBefore(n) {
     const next = new Map();
@@ -82,7 +84,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'Kod.gs'), 'utf8'), sandbox);
-const { LINK_ROW, HALL_ROW, TIME_ROW, HEADER_ROW, FIRST_ROW, COL } = sandbox; // řádky se berou ze skriptu
+const { LINK_ROW, HALL_ROW, DATE_ROW, TIME_ROW, HEADER_ROW, FIRST_ROW, COL } = sandbox; // řádky se berou ze skriptu
 const get = (r, c) => cells.get(key(r, c)) ?? '';
 const edit = (r, c, nr = 1, nc = 1) => sandbox.priUprave({ range: makeRange(sheet, r, c, nr, nc) });
 const row = k => FIRST_ROW + k; // k-tá hráčka
@@ -90,8 +92,8 @@ const row = k => FIRST_ROW + k; // k-tá hráčka
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok  ' + name); }
 
-test('rozložení: odkaz → hala → čas → záhlaví → hráčky', () => {
-  assert(LINK_ROW < HALL_ROW && HALL_ROW < TIME_ROW && TIME_ROW < HEADER_ROW && HEADER_ROW < FIRST_ROW);
+test('rozložení: odkaz → hala → datum → čas → záhlaví → hráčky', () => {
+  assert(LINK_ROW < HALL_ROW && HALL_ROW < DATE_ROW && DATE_ROW < TIME_ROW && TIME_ROW < HEADER_ROW && HEADER_ROW < FIRST_ROW);
   assert.strictEqual(LINK_ROW, 1, 'odkaz musí být úplně nahoře');
 });
 test('nastavit() vytvoří popisky, záhlaví a prázdné pole pro odkaz', () => {
@@ -100,7 +102,15 @@ test('nastavit() vytvoří popisky, záhlaví a prázdné pole pro odkaz', () =>
   assert.strictEqual(get(LINK_ROW, COL.ADDR), '');
   assert.strictEqual(get(HALL_ROW, COL.NAME), 'Hala (adresa)');
   assert.strictEqual(get(TIME_ROW, COL.ADDR), '18:30');
+  assert.strictEqual(get(DATE_ROW, COL.NAME), 'Datum zápasu');
+  assert.strictEqual(get(DATE_ROW, COL.ADDR), '', 'datum se má vyplnit ručně');
   assert.strictEqual(get(HEADER_ROW, COL.NAME), 'Jméno'); assert.strictEqual(get(HEADER_ROW, COL.CHECK), 'Kontrola adresy');
+});
+test('den v týdnu: vzorec česky a nezávisle na jazyku tabulky', () => {
+  const f = get(DATE_ROW, COL.STATUS);
+  assert(f.startsWith('=IF(B' + DATE_ROW + '="","",'), f);
+  assert(f.includes('WEEKDAY(B' + DATE_ROW + ',2)'), 'týden začíná pondělím');
+  assert(f.includes('"pondělí","úterý","středa","čtvrtek","pátek","sobota","neděle"'), f);
 });
 test('přesná adresa → ✓, nalezená adresa a souřadnice jako text s tečkou', () => {
   cells.set(key(row(0), 2), 'Vinohradská 12, Praha'); edit(row(0), 2);
@@ -146,7 +156,7 @@ test('hala se kontroluje stejně', () => {
 test('řádek s odkazem, čas ani záhlaví se nekontrolují jako adresy', () => {
   const n = calls.geocode;
   cells.set(key(LINK_ROW, 2), 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv');
-  edit(LINK_ROW, 2); edit(TIME_ROW, 2); edit(HEADER_ROW, 2); edit(201, 2);
+  edit(LINK_ROW, 2); edit(DATE_ROW, 2); edit(TIME_ROW, 2); edit(HEADER_ROW, 2); edit(201, 2);
   assert.strictEqual(calls.geocode, n);
   assert.strictEqual(get(LINK_ROW, 5), '', 'u odkazu se nesmí objevit kontrola');
 });
@@ -168,6 +178,7 @@ test('novyZapas smaže jen sloupec Stav', () => {
   cells.set(key(row(0), 3), 'Nejedu'); cells.set(key(row(0), 1), 'Anna'); cells.set(key(row(0), 4), 4);
   sandbox.novyZapas();
   assert.strictEqual(get(row(0), 3), ''); assert.strictEqual(get(row(0), 1), 'Anna'); assert.strictEqual(get(row(0), 4), 4);
+  assert(calls.alerts[calls.alerts.length - 1].includes('datum'), 'má připomenout nastavení nového data');
 });
 test('opakované nastavit() ukládá odkaz a před smazáním dat se ptá', () => {
   const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
@@ -180,19 +191,39 @@ test('opakované nastavit() ukládá odkaz a před smazáním dat se ptá', () =
   assert.strictEqual(get(LINK_ROW, 2), link, 'odkaz se musí zachovat');
   assert.strictEqual(get(row(0), 1), '', 'hráčky se po potvrzení smažou');
 });
-test('migrovat(): starý list (hala v 1. řádku) dostane nahoře řádek s odkazem a data zůstanou', () => {
+const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
+test('migrovat(): nejstarší list (hala v 1. řádku) dostane řádek s odkazem i s datem, data zůstanou', () => {
   cells = new Map();
-  // starý formát: 1 hala, 2 čas, 3 poznámka, 4 záhlaví, 5+ hráčky
+  // nejstarší formát: 1 hala, 2 čas, 3 poznámka, 4 záhlaví, 5+ hráčky
   cells.set(key(1, 1), 'Hala (adresa)'); cells.set(key(1, 2), 'Vinohradská 12, Praha'); cells.set(key(1, 5), '✓ Adresa nalezena');
   cells.set(key(2, 1), 'Čas příjezdu do haly'); cells.set(key(2, 2), '18:30');
   cells.set(key(4, 1), 'Jméno'); cells.set(key(5, 1), 'Anna'); cells.set(key(5, 2), 'Praha 1'); cells.set(key(5, 3), 'Nejedu');
   sandbox.migrovat();
   assert.strictEqual(get(LINK_ROW, 1), 'Odkaz na zveřejněnou tabulku');
   assert.strictEqual(get(HALL_ROW, 1), 'Hala (adresa)'); assert.strictEqual(get(HALL_ROW, 2), 'Vinohradská 12, Praha');
-  assert.strictEqual(get(TIME_ROW, 2), '18:30');
+  assert.strictEqual(get(DATE_ROW, 1), 'Datum zápasu');
+  assert.strictEqual(get(TIME_ROW, 1), 'Čas příjezdu do haly'); assert.strictEqual(get(TIME_ROW, 2), '18:30');
   assert.strictEqual(get(HEADER_ROW, 1), 'Jméno');
   assert.strictEqual(get(FIRST_ROW, 1), 'Anna'); assert.strictEqual(get(FIRST_ROW, 3), 'Nejedu');
   assert.strictEqual(calls.frozen, HEADER_ROW);
+  assert(calls.alerts[calls.alerts.length - 1].includes('odkaz'), 'má připomenout vložení odkazu');
+});
+test('migrovat(): list s odkazem, ale bez data, dostane jen řádek s datem a odkaz zůstane', () => {
+  cells = new Map();
+  // předchozí formát: 1 odkaz, 2 hala, 3 čas, 4 poznámka, 5 záhlaví, 6+ hráčky
+  cells.set(key(1, 1), 'Odkaz na zveřejněnou tabulku'); cells.set(key(1, 2), link);
+  cells.set(key(2, 1), 'Hala (adresa)'); cells.set(key(2, 2), 'Vinohradská 12, Praha');
+  cells.set(key(3, 1), 'Čas příjezdu do haly'); cells.set(key(3, 2), '18:30');
+  cells.set(key(5, 1), 'Jméno'); cells.set(key(6, 1), 'Anna'); cells.set(key(6, 3), 'Můžu vzít auto'); cells.set(key(6, 4), 5);
+  sandbox.migrovat();
+  assert.strictEqual(get(LINK_ROW, 2), link, 'odkaz se nesmí ztratit');
+  assert.strictEqual(get(HALL_ROW, 1), 'Hala (adresa)');
+  assert.strictEqual(get(DATE_ROW, 1), 'Datum zápasu');
+  assert.strictEqual(get(TIME_ROW, 2), '18:30');
+  assert.strictEqual(get(HEADER_ROW, 1), 'Jméno');
+  assert.strictEqual(get(FIRST_ROW, 1), 'Anna'); assert.strictEqual(get(FIRST_ROW, 3), 'Můžu vzít auto'); assert.strictEqual(get(FIRST_ROW, 4), 5);
+  assert.strictEqual(calls.frozen, HEADER_ROW);
+  assert(!calls.alerts[calls.alerts.length - 1].includes('vložte odkaz'), 'odkaz už je, nepřipomínat');
 });
 test('migrovat() podruhé nic neposouvá', () => {
   const before = new Map(cells);

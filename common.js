@@ -5,6 +5,7 @@
  * Verze si předají stav přes setupPlan({ getState, hint }):
  *   getState() -> { people, hall, arrive, settings }
  *   hint()     -> doplňující věta k chybě „chybí adresa“ (např. odkaz do tabulky)
+ *   warnings() -> pole upozornění zobrazených před plánem (např. staré datum zápasu)
  */
 (function (root) {
   'use strict';
@@ -72,6 +73,7 @@
       $('notices').innerHTML = '';
       const waiting = state.people.filter(p => !p.status && ((p.name || '').trim() || (p.address || '').trim()));
       if (waiting.length) notice('warn', 'Zatím nevyplnily stav: ' + waiting.map(nameOf).join(', ') + '. Do plánu se nepočítají.');
+      (cfg.warnings ? cfg.warnings() : []).forEach(t => notice('warn', t));
       const attendees = state.people.filter(p => ATTENDING(p.status));
       if (attendees.length < 2) return notice('bad', 'Zatím jedou méně než dvě hráčky.');
       if (state.hall.lat == null) return notice('bad', 'Adresa haly zatím nebyla nalezena. Zkontrolujte ji.' + hint());
@@ -107,7 +109,7 @@
   async function renderResult(state, result, attendees, estimated) {
     const arrive = (() => { const [h, m] = state.arrive.split(':').map(Number); return h * 60 + m; })();
     const hallName = state.hall.address.trim();
-    const lines = [`Zápas – sraz v hale ${state.arrive}${hallName ? ' (' + hallName + ')' : ''}`, ''];
+    const lines = [`Zápas${state.dateText ? ' ' + state.dateText : ''} – sraz v hale ${state.arrive}${hallName ? ' (' + hallName + ')' : ''}`, ''];
     let html = `<p class="small" style="margin-top:0">${result.carCount} ${result.carCount === 1 ? 'auto' : result.carCount < 5 ? 'auta' : 'aut'}, celkem ${Math.round(result.totalDrivingMin)} minut jízdy${estimated ? ' (odhad)' : ''}.</p>`;
 
     result.cars.forEach((car, i) => {

@@ -56,11 +56,13 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 3. **Vložte tento odkaz do žlutého pole v prvním řádku tabulky** (řádek „Odkaz na zveřejněnou tabulku“). Pak je vždy po ruce a nemusíte ho znovu hledat v nastavení zveřejnění. Skript ho sám zjistit neumí, vkládá se jednou ručně.
 4. Otevřete [`tabulka/`](tabulka/) a vložte tentýž odkaz (a volitelně odkaz na úpravy tabulky). Aplikace vytvoří odkaz pro hráčky.
 
-**Rozložení listu Tým:** řádek 1 odkaz na zveřejněnou tabulku, řádek 2 hala, řádek 3 čas příjezdu, řádek 5 záhlaví, od řádku 6 hráčky. Sloupce E–H se plní samy. Aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Čas…“, „Jméno“), proto je nepřejmenovávejte.
+**Rozložení listu Tým:** řádek 1 odkaz na zveřejněnou tabulku, řádek 2 hala, řádek 3 datum zápasu, řádek 4 čas příjezdu, řádek 6 záhlaví, od řádku 7 hráčky. Sloupce E–H se plní samy. Aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Datum…“, „Čas…“, „Jméno“), proto je nepřejmenovávejte.
 
-**Starší tabulka (bez řádku s odkazem):** nejdřív vložte novou verzi skriptu `Kod.gs` a pak v nabídce **Spolujízdy → Aktualizovat starší tabulku** (nebo spusťte funkci `migrovat`). Skript nahoru vloží řádek pro odkaz a **nic nesmaže**. Funkci `nastavit` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
+**Datum zápasu:** vyplňte ho ručně (např. `2. 12. 2026`), vedle se samo doplní **den v týdnu**. Datum se zobrazí v aplikaci i ve zprávě do skupiny („Zápas středa 2. 12. 2026 – sraz v hale 18:30…“). Slouží také k odlišení starých záznamů: když datum chybí (žlutě) nebo je v minulosti (červeně), upozorní na to tabulka i aplikace, že stavy hráček jsou nejspíš ze starého zápasu.
 
-**Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou.
+**Starší tabulka (bez nových řádků):** nejdřív vložte novou verzi skriptu `Kod.gs` a pak v nabídce **Spolujízdy → Aktualizovat starší tabulku (nové řádky)** (nebo spusťte funkci `migrovat`). Skript doplní jen to, co chybí (řádek s odkazem, řádek s datem), a **nic nesmaže**. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `nastavit` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
+
+**Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou. Pak nastavte datum nového zápasu.
 
 ### Co je dobré vědět
 
