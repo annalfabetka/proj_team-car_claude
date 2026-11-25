@@ -129,12 +129,18 @@
     if (sig !== lastSig) { lastSig = sig; renderRoster(); }
   }
 
+  // poslední úspěšné načtení: "25. 11. 2026 14:32:05"
+  let lastLoaded = null;
+  const fmtStamp = d => `${d.getDate()}. ${d.getMonth() + 1}. ${d.getFullYear()} ` +
+    [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
   function setSync(kind) {
     const el = $('syncStatus');
     if (!el) return;
+    const when = lastLoaded ? ` Poslední načtení: ${fmtStamp(lastLoaded)}.` : '';
     const t = {
-      ok: ['✓ načteno z tabulky', 'ok'], load: ['načítám…', 'wait'],
-      err: ['⚠ tabulku se nepodařilo načíst (je zveřejněná a odkaz správný?)', 'bad'],
+      ok: [`✓ načteno z tabulky (${lastLoaded ? fmtStamp(lastLoaded) : ''})`, 'ok'],
+      load: ['načítám…' + (lastLoaded ? ` (naposledy ${fmtStamp(lastLoaded)})` : ''), 'wait'],
+      err: ['⚠ tabulku se nepodařilo načíst (je zveřejněná a odkaz správný?).' + when, 'bad'],
     }[kind];
     el.textContent = t[0]; el.className = 'geo ' + t[1];
   }
@@ -147,6 +153,7 @@
       const res = await fetch(`https://docs.google.com/spreadsheets/d/e/${pub}/pub?gid=${gid}&single=true&output=csv`, { cache: 'no-store' });
       if (!res.ok) throw new Error('http ' + res.status);
       applySheet(parseSheet(await res.text()));
+      lastLoaded = new Date();
       setSync('ok');
     } catch (e) { setSync('err'); }
     fetching = false;
