@@ -91,6 +91,7 @@ style.css             společné styly
 planner.js            plánovač (čistá logika, bez závislostí)
 common.js             společný kód: stavy, trasy, plán, mapa, zpráva do skupiny
 test.js               testy plánovače
+verze.js              nastaví číslo verze v HTML (spouští se po změně kódu)
 lokalni/              lokální verze (index.html, app.js)
 tabulka/              prototyp s Google tabulkou
   index.html, app.js    stránka, která z tabulky čte
@@ -99,6 +100,8 @@ tabulka/              prototyp s Google tabulkou
 ```
 
 Testy: `node test.js` (plánovač) a `node tabulka/test-kod.js` (skript tabulky).
+
+**Číslo verze:** soubory se v HTML načítají jako `app.js?v=…` a číslo se ukazuje i v patičce stránek. Po každé změně kódu spusťte před nahráním `node verze.js`. Prohlížeč si pak po nasazení stáhne nové soubory místo starých z paměti (GitHub Pages je jinak drží až 10 minut). Samotná stránka se obnoví nejpozději za 10 minut, nebo hned po tvrdém obnovení (Ctrl+F5).
 
 ## Soukromí
 
