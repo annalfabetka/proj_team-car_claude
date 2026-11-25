@@ -9,7 +9,7 @@ K dispozici jsou dvě verze vedle sebe. Plánovač (výpočet tras) mají spole�
 | Verze | Adresa | Pro koho |
 |---|---|---|
 | **Prototyp s Google tabulkou** | [`tabulka/`](tabulka/) | Hráčky vyplňují společnou Google tabulku, která sama kontroluje adresy. Aplikace z ní čte a plánuje. |
-| **Lokální verze** | [`lokalni/`](lokalni/) | Jedno zařízení bez sdílení. Soupisku zadává jedna osoba, uloží se jen v jejím prohlížeči. Nic se nenastavuje. |
+| **Lokální verze** | [`lokalni/`](lokalni/) | Jedno zařízení bez sdílení. Soupisku zadává jedna osoba, uloží se jen v jejím prohlížeči. Nic se nenastavuje. Z rozcestníku je dočasně skrytá (zakomentovaná v `index.html`), přímý odkaz funguje. |
 
 ## Stavy hráček
 
