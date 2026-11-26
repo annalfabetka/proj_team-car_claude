@@ -111,6 +111,19 @@
       : '';
   }
 
+  // Columns I-O: how the person gets home. Only meaningful when 'jinam' (somewhere else) is chosen.
+  function sheetReturn(r) {
+    const mode = plain(r[8]);
+    const check = String(r[11] || '').trim();
+    return {
+      returnMode: mode === 'jinam' ? 'elsewhere' : mode.startsWith('odvoz zpet') ? 'self' : 'same',
+      takesReturn: plain(r[9]) !== 'ne',   // drivers: "Zpět vezmu spolucestující" = ne -> takes nobody back
+      retAddress: String(r[10] || '').trim(), retCheck: check, retLabel: String(r[12] || '').trim(),
+      retLat: cellNum(r[13]), retLon: cellNum(r[14]),
+      retFail: check.startsWith('✗'), retWarn: check.startsWith('⚠'),
+    };
+  }
+
   function parseSheet(text) {
     const rows = parseCsv(text);
     const hallRow = rows.find(r => plain(r[0]).startsWith('hala'));
@@ -125,7 +138,7 @@
       // only drivers have a seat count; anything else in that column is ignored
       const seatsText = String(r[3] || '').trim();
       const seatsOk = /^\d+$/.test(seatsText) && +seatsText >= 2 && +seatsText <= 9;
-      people.push(normPerson(Object.assign(sheetPlace(r), {
+      people.push(normPerson(Object.assign(sheetPlace(r), sheetReturn(r), {
         id: 'r' + (hdr + 2 + i), name: String(r[0] || '').trim(),
         status, seats: DRIVER(status) && seatsOk ? seatsText : '',
         seatsMissing: DRIVER(status) && !seatsOk,
@@ -140,6 +153,16 @@
   }
 
   // ---------- rendering ----------
+  // short note about the trip back for the read-only roster
+  function backText(p) {
+    const parts = [];
+    if (p.returnMode === 'elsewhere') {
+      parts.push('jinam: ' + (p.retAddress || '(adresa chybí)') + (p.retLat == null ? ' ⚠ nenalezeno' : p.retWarn ? ' ⚠ ověřit' : ''));
+    } else if (p.returnMode === 'self') parts.push('odvoz zpět nepotřebuje');
+    if (DRIVER(p.status) && p.takesReturn === false) parts.push('zpět nikoho nevezme');
+    return parts.join(' · ');
+  }
+
   function renderRoster() {
     $('roster').innerHTML = state.people.map(p => `
       <tr data-id="${esc(p.id)}">
@@ -149,7 +172,7 @@
         <td data-label="Míst v autě (s řidičkou)"><input type="number" data-f="seats" value="${DRIVER(p.status) && !p.seatsMissing ? p.seats : ''}" aria-label="Míst v autě" disabled></td>
         <td data-label="Stav"><select data-f="status" aria-label="Stav" disabled>${STATUS.map(([v, l]) =>
           `<option value="${v}" ${p.status === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
-        <td></td>
+        <td class="back" data-label="Zpět">${esc(backText(p))}</td>
       </tr>`).join('') || '<tr><td colspan="6" class="small">V tabulce zatím nikdo není.</td></tr>';
   }
   function renderHallStatus() { $('hallStatus').innerHTML = state.hall.address ? geoHtml(state.hall) : ''; }
@@ -271,7 +294,7 @@
 
   setupPlan({
     getState: () => state,
-    hint: () => ' Podívejte se do sloupce „Kontrola adresy“ v tabulce.',
+    hint: () => ' Podívejte se do sloupců „Kontrola adresy“ a „Kontrola návratu“ v tabulce.',
     warnings: () => [dateWarning(), seatsWarning()].filter(Boolean),
   });
 

@@ -18,6 +18,9 @@
  *   row 6   header: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
  *   row 7+  players
  *
+ * Columns I-O describe the trip back: I "Návrat" (same as there / somewhere else / no ride needed),
+ * J "Zpět vezmu spolucestující" (drivers only), K the return address with its check in L-O.
+ *
  * The planning app finds rows by the labels in the first column ("Hala...", "Datum...", "Čas...",
  * "Jméno"), so do not rename them.
  */
@@ -32,12 +35,19 @@ var HEADER_ROW = 6;
 var FIRST_ROW = 7;
 var LAST_ROW = 200;
 var MAX_ROWS_PER_EDIT = 30;
-var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8 };
+var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8,
+  // the trip back
+  RETURN: 9, TAKES_BACK: 10, RET_ADDR: 11, RET_CHECK: 12, RET_FOUND: 13, RET_LAT: 14, RET_LON: 15 };
+var RETURN_MODES = ['Stejně jako tam', 'Jinam', 'Odvoz zpět nepotřebuji'];
+var RETURN_ELSEWHERE = 'Jinam';
+var TAKES_BACK_VALUES = ['ano', 'ne'];
 var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
 var DRIVER_STATUSES = ['Určitě beru auto', 'Můžu vzít auto'];
 var NON_DRIVER_STATUSES = ['Potřebuji odvoz', 'Nejedu'];
 var STATUSES = DRIVER_STATUSES.concat(NON_DRIVER_STATUSES);
-var HEADER_LABELS = ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon'];
+var HEADER_LABELS = ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon',
+  'Návrat', 'Zpět vezmu spolucestující', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět'];
+var LAST_COL = HEADER_LABELS.length;
 
 // Result types that count as precise enough for a pickup (street + number / a specific place).
 var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
@@ -48,13 +58,13 @@ var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
 /* ---------- shared row preparation (used by setup and migrate) ---------- */
 
 function prepareLinkRow(sh, savedLink) {
-  sh.getRange(LINK_ROW, 1, 1, 8).clearFormat();
+  sh.getRange(LINK_ROW, 1, 1, LAST_COL).clearFormat();
   sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz pro aplikaci').setFontWeight('bold');
   sh.getRange(LINK_ROW, COL.ADDR).setNumberFormat('@').setValue(savedLink || '').setBackground('#fff8d6'); // cell for pasting the link
 }
 
 function prepareDateRow(sh) {
-  sh.getRange(DATE_ROW, 1, 1, 8).clearFormat();
+  sh.getRange(DATE_ROW, 1, 1, LAST_COL).clearFormat();
   sh.getRange(DATE_ROW, COL.NAME).setValue('Datum zápasu').setFontWeight('bold');
   sh.getRange(DATE_ROW, COL.ADDR).setNumberFormat('d. M. yyyy').setValue('');
   var dateRule = SpreadsheetApp.newDataValidation().requireDate()
@@ -84,7 +94,7 @@ function installTrigger() {
  * so a heading renamed by hand stays as it is. Returns true when something was filled in.
  */
 function ensureHeader(sh) {
-  var current = sh.getRange(HEADER_ROW, 1, 1, 8).getValues()[0];
+  var current = sh.getRange(HEADER_ROW, 1, 1, LAST_COL).getValues()[0];
   var filled = false;
   var labels = current.map(function (value, i) {
     if (String(value).trim() !== '') return value;
@@ -92,7 +102,7 @@ function ensureHeader(sh) {
     return HEADER_LABELS[i];
   });
   if (!filled) return false;
-  sh.getRange(HEADER_ROW, 1, 1, 8).setValues([labels]).setFontWeight('bold').setBackground('#e8eaf0');
+  sh.getRange(HEADER_ROW, 1, 1, LAST_COL).setValues([labels]).setFontWeight('bold').setBackground('#e8eaf0');
   return true;
 }
 
@@ -150,26 +160,21 @@ function seatsRules(sh) {
   ];
 }
 
-function hasFormulaRule(rules, formula) {
-  return rules.some(function (rule) {
-    var c = rule.getBooleanCondition();
-    return !!c && c.getCriteriaValues().indexOf(formula) !== -1;
-  });
-}
-
 /**
- * Clears the seat count of players whose status says they are not driving. Returns how many were cleared.
- * Reads the status and seat columns in one go (cell-by-cell reads are slow in Google Sheets).
+ * The seat count and "takes passengers back" only make sense for drivers: clears them for players whose
+ * status says they are not driving. Returns how many players had something cleared.
+ * Reads in one go (cell-by-cell reads are slow in Google Sheets).
  */
-function clearSeatsOfPassengers(sh, fromRow, toRow) {
+function clearDriverOnlyFields(sh, fromRow, toRow) {
   if (toRow < fromRow) return 0;
-  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.SEATS - COL.STATUS + 1).getValues();
-  var cleared = 0;
+  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.TAKES_BACK - COL.STATUS + 1).getValues();
+  var seatsAt = COL.SEATS - COL.STATUS, takesAt = COL.TAKES_BACK - COL.STATUS, cleared = 0;
   values.forEach(function (v, i) {
-    if (NON_DRIVER_STATUSES.indexOf(String(v[0])) !== -1 && String(v[v.length - 1]) !== '') {
-      sh.getRange(fromRow + i, COL.SEATS).clearContent();
-      cleared++;
-    }
+    if (NON_DRIVER_STATUSES.indexOf(String(v[0])) === -1) return;
+    var any = false;
+    if (String(v[seatsAt]) !== '') { sh.getRange(fromRow + i, COL.SEATS).clearContent(); any = true; }
+    if (String(v[takesAt]) !== '') { sh.getRange(fromRow + i, COL.TAKES_BACK).clearContent(); any = true; }
+    if (any) cleared++;
   });
   return cleared;
 }
@@ -186,6 +191,111 @@ function dateRules(sh) {
   ];
 }
 
+
+/* ---------- the trip back (columns I-O) ---------- */
+
+/** Protects a range (warning only) unless exactly that range is protected already, so reruns do not pile up. */
+function protectOnce(range) {
+  var a1 = range.getA1Notation();
+  var exists = range.getSheet().getProtections(SpreadsheetApp.ProtectionType.RANGE)
+    .some(function (p) { return p.getRange().getA1Notation() === a1; });
+  if (!exists) range.protect().setWarningOnly(true);
+}
+
+function returnModeValidation() {
+  return SpreadsheetApp.newDataValidation().requireValueInList(RETURN_MODES, true).setAllowInvalid(false)
+    .setHelpText('Stejně jako tam = vracíte se na stejnou adresu. Jinam = napište adresu návratu. ' +
+      'Odvoz zpět nepotřebuji = domů se dostanete sami.').build();
+}
+
+function takesBackValidation() {
+  return SpreadsheetApp.newDataValidation().requireValueInList(TAKES_BACK_VALUES, true).setAllowInvalid(false)
+    .setHelpText('Jen pro řidičky: ano = cestou zpět vezmu spolucestující, ne = nikoho nevezmu.').build();
+}
+
+/** Colour rules for the return columns (all formula based, so reruns can recognise them). */
+function returnRules(sh) {
+  var rows = LAST_ROW - FIRST_ROW + 1, r = FIRST_ROW;
+  var column = function (col) { return [sh.getRange(FIRST_ROW, col, rows, 1)]; };
+  var rule = function (formula, col, background, font) {
+    var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges(column(col));
+    if (background) b = b.setBackground(background);
+    if (font) b = b.setFontColor(font);
+    return b.build();
+  };
+  return [
+    rule('=LEFT($L' + r + ',1)="✗"', COL.RET_CHECK, '#f8d7da', '#a4262c'),
+    rule('=LEFT($L' + r + ',1)="⚠"', COL.RET_CHECK, '#ffe8b3', '#7a4b00'),
+    rule('=LEFT($L' + r + ',1)="✓"', COL.RET_CHECK, null, '#1a7f3c'),
+    rule('=AND($I' + r + '="' + RETURN_ELSEWHERE + '",$K' + r + '="")', COL.RET_ADDR, '#ffe8b3', null), // "Jinam" without an address
+    rule('=$I' + r + '<>"' + RETURN_ELSEWHERE + '"', COL.RET_ADDR, '#eceef2', null),                      // address not asked
+    rule('=NOT(' + driverCondition() + ')', COL.TAKES_BACK, '#eceef2', null),                              // only drivers are asked
+  ];
+}
+
+/** Validation, formats, widths and protection of the return columns. Safe to run repeatedly. */
+function applyReturnColumns(sh) {
+  var rows = LAST_ROW - FIRST_ROW + 1;
+  sh.getRange(FIRST_ROW, COL.RETURN, rows, 1).setDataValidation(returnModeValidation());
+  sh.getRange(FIRST_ROW, COL.TAKES_BACK, rows, 1).setDataValidation(takesBackValidation());
+  sh.getRange(FIRST_ROW, COL.RET_CHECK, rows, 4).setBackground('#f3f4f7');
+  sh.getRange(FIRST_ROW, COL.RET_LAT, rows, 2).setNumberFormat('@').setFontColor('#8a93a5'); // coordinates as text
+  sh.setColumnWidth(COL.RETURN, 170);
+  sh.setColumnWidth(COL.TAKES_BACK, 140);
+  sh.setColumnWidth(COL.RET_ADDR, 260);
+  sh.setColumnWidth(COL.RET_CHECK, 220);
+  sh.setColumnWidth(COL.RET_FOUND, 260);
+  sh.setColumnWidth(COL.RET_LAT, 80);
+  sh.setColumnWidth(COL.RET_LON, 80);
+  protectOnce(sh.getRange(FIRST_ROW, COL.RET_CHECK, rows, 4));
+}
+
+/** Identifies a conditional-format rule by its formula and the ranges it covers (two columns may share a formula). */
+function ruleKey(rule) {
+  var condition = rule.getBooleanCondition();
+  var formula = condition ? condition.getCriteriaValues()[0] : '';
+  return formula + '|' + rule.getRanges().map(function (r) { return r.getA1Notation(); }).join(',');
+}
+
+/** Adds the rules the sheet does not have yet (same formula and range); never duplicates, never removes. */
+function addMissingRules(sh, newRules) {
+  var rules = sh.getConditionalFormatRules();
+  var known = {};
+  rules.forEach(function (r) { known[ruleKey(r)] = true; });
+  newRules.forEach(function (rule) {
+    if (known[ruleKey(rule)]) return;
+    known[ruleKey(rule)] = true;
+    rules = rules.concat(rule);
+  });
+  sh.setConditionalFormatRules(rules);
+}
+
+/**
+ * The return address only applies when "Jinam" is chosen: clears it (with its check) in the other rows.
+ * Returns how many rows were cleared.
+ */
+function clearUnusedReturnAddress(sh, fromRow, toRow) {
+  if (toRow < fromRow) return 0;
+  var values = sh.getRange(fromRow, COL.RETURN, toRow - fromRow + 1, COL.RET_LON - COL.RETURN + 1).getValues();
+  var cleared = 0;
+  values.forEach(function (v, i) {
+    if (String(v[0]) === RETURN_ELSEWHERE) return;
+    var used = v.slice(COL.RET_ADDR - COL.RETURN).some(function (x) { return String(x) !== ''; });
+    if (used) { sh.getRange(fromRow + i, COL.RET_ADDR, 1, 5).clearContent(); cleared++; }
+  });
+  return cleared;
+}
+
+/** After "Jinam" is chosen for a row that already has an address typed in, check that address now. */
+function checkNewReturnRows(sh, fromRow, toRow) {
+  if (toRow < fromRow) return;
+  var values = sh.getRange(fromRow, COL.RETURN, toRow - fromRow + 1, COL.RET_CHECK - COL.RETURN + 1).getValues();
+  var done = 0;
+  values.forEach(function (v, i) {
+    var typed = String(v[COL.RET_ADDR - COL.RETURN]).trim() !== '', checked = String(v[COL.RET_CHECK - COL.RETURN]) !== '';
+    if (String(v[0]) === RETURN_ELSEWHERE && typed && !checked && done++ < MAX_ROWS_PER_EDIT) checkReturnRow(sh, fromRow + i);
+  });
+}
 
 function setup() {
   var ss = SpreadsheetApp.getActive();
@@ -218,13 +328,13 @@ function setup() {
   sh.getRange(TIME_ROW, COL.NAME).setValue('Čas příjezdu do haly');
   sh.getRange(TIME_ROW, COL.ADDR).setNumberFormat('@').setValue('18:30');
   sh.getRange(NOTE_ROW, COL.NAME).setValue(
-    'Vyplňujte jen bílá pole. Sloupce E–H se doplní samy. Odkaz v prvním řádku vložte po zveřejnění tabulky (Soubor → Sdílet → Publikovat na webu → CSV).');
-  sh.getRange(HEADER_ROW, 1, 1, 8).setValues([HEADER_LABELS]);
+    'Vyplňujte jen bílá pole. Sloupce E–H a L–O se doplní samy. Odkaz v prvním řádku vložte po zveřejnění tabulky (Soubor → Sdílet → Publikovat na webu → CSV).');
+  sh.getRange(HEADER_ROW, 1, 1, LAST_COL).setValues([HEADER_LABELS]);
 
   // appearance
   sh.getRange(LINK_ROW, COL.NAME, TIME_ROW, 1).setFontWeight('bold');
   sh.getRange(NOTE_ROW, COL.NAME).setFontStyle('italic').setFontColor('#6a7385');
-  sh.getRange(HEADER_ROW, 1, 1, 8).setFontWeight('bold').setBackground('#e8eaf0');
+  sh.getRange(HEADER_ROW, 1, 1, LAST_COL).setFontWeight('bold').setBackground('#e8eaf0');
   sh.getRange(HALL_ROW, COL.CHECK, TIME_ROW - HALL_ROW + 1, 4).setBackground('#f3f4f7');
   sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).setBackground('#f3f4f7');
   sh.getRange(HALL_ROW, COL.LAT, LAST_ROW - HALL_ROW + 1, 2).setFontColor('#8a93a5');
@@ -248,6 +358,7 @@ function setup() {
     .requireFormulaSatisfied('=REGEXMATCH(TO_TEXT(B' + TIME_ROW + '),"^\\d{1,2}[:.]\\d{2}$")')
     .setAllowInvalid(false).setHelpText('Čas ve tvaru 18:30.').build();
   sh.getRange(TIME_ROW, COL.ADDR).setDataValidation(timeRule);
+  applyReturnColumns(sh);
 
   // colour warnings
   var checkRange = [sh.getRange(HALL_ROW, COL.CHECK, 1, 1),
@@ -259,14 +370,14 @@ function setup() {
       .setBackground('#ffe8b3').setFontColor('#7a4b00').setRanges(checkRange).build(),
     SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith('✓')
       .setFontColor('#1a7f3c').setRanges(checkRange).build(),
-  ].concat(seatsRules(sh), dateRules(sh)));
+  ].concat(seatsRules(sh), dateRules(sh), returnRules(sh)));
 
   // protect labels, header and automatic columns from accidental edits (warning only)
-  sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1).protect().setWarningOnly(true);
-  sh.getRange(HEADER_ROW, 1, 1, 8).protect().setWarningOnly(true);
-  sh.getRange(HALL_ROW, COL.CHECK, TIME_ROW - HALL_ROW + 1, 4).protect().setWarningOnly(true);
-  sh.getRange(DATE_ROW, COL.STATUS).protect().setWarningOnly(true);
-  sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).protect().setWarningOnly(true);
+  protectOnce(sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1));
+  protectOnce(sh.getRange(HEADER_ROW, 1, 1, LAST_COL));
+  protectOnce(sh.getRange(HALL_ROW, COL.CHECK, TIME_ROW - HALL_ROW + 1, 4));
+  protectOnce(sh.getRange(DATE_ROW, COL.STATUS));
+  protectOnce(sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4));
 
   installTrigger();
 
@@ -293,10 +404,13 @@ function checkAll() {
   checkRow(sh, HALL_ROW);
   var last = Math.min(sh.getLastRow(), LAST_ROW);
   if (last >= FIRST_ROW) {
-    // read the address and check columns once; skip rows that have neither
-    var values = sh.getRange(FIRST_ROW, COL.ADDR, last - FIRST_ROW + 1, COL.CHECK - COL.ADDR + 1).getValues();
+    // read columns B..L once; skip rows that have neither an address nor a check
+    var values = sh.getRange(FIRST_ROW, COL.ADDR, last - FIRST_ROW + 1, COL.RET_CHECK - COL.ADDR + 1).getValues();
+    var at = function (col) { return col - COL.ADDR; };
     values.forEach(function (v, i) {
-      if (String(v[0]).trim() !== '' || String(v[v.length - 1]) !== '') checkRow(sh, FIRST_ROW + i);
+      var row = FIRST_ROW + i;
+      if (String(v[at(COL.ADDR)]).trim() !== '' || String(v[at(COL.CHECK)]) !== '') checkRow(sh, row);
+      if (String(v[at(COL.RET_ADDR)]).trim() !== '' || String(v[at(COL.RET_CHECK)]) !== '') checkReturnRow(sh, row);
     });
   }
   ss.toast('Kontrola dokončena.');
@@ -343,23 +457,20 @@ function migrate() {
   }
   if (added.length) sh.setFrozenRows(HEADER_ROW);
 
-  // seat-count rules (validation + colours) and tidy-up of stale seat counts of passengers
-  var rules = sh.getConditionalFormatRules();
-  seatsRules(sh).forEach(function (rule) {
-    if (!hasFormulaRule(rules, rule.getBooleanCondition().getCriteriaValues()[0])) rules = rules.concat(rule);
-  });
-  sh.setConditionalFormatRules(rules);
-  sh.getRange(HEADER_ROW, 1, 1, 8).clearDataValidations(); // headings must never carry a dropdown
+  // rules for the seat count and the trip back (validation + colours), added once and never duplicated
+  addMissingRules(sh, seatsRules(sh).concat(returnRules(sh)));
+  sh.getRange(HEADER_ROW, 1, 1, LAST_COL).clearDataValidations(); // headings must never carry a dropdown
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(statusValidation());
   sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
-  var cleared = clearSeatsOfPassengers(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
+  applyReturnColumns(sh);
+  var cleared = clearDriverOnlyFields(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   var headerRestored = ensureHeader(sh);
 
   var msg = added.length
     ? 'Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
       (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.'
     : 'Tabulka už má nové rozložení, nic se nepřidávalo.';
-  msg += ' Pravidla pro počet míst (jen u řidiček) a spouštěč kontroly adres jsou aktualizované.';
+  msg += ' Pravidla pro počet míst (jen u řidiček), sloupce pro cestu zpět a spouštěč kontroly adres jsou aktualizované.';
   if (cleared) msg += ' Vymazán zbylý počet míst u spolucestujících: ' + cleared + '.';
   if (headerRestored) msg += ' Doplněny chybějící nadpisy sloupců v řádku ' + HEADER_ROW + '.';
   ui.alert(msg);
@@ -372,26 +483,47 @@ function onEditCheck(e) {
   var range = e.range, sh = range.getSheet();
   if (sh.getName() !== SHEET_NAME) return;
   if (!layoutMatches(sh)) { SpreadsheetApp.getActive().toast(LAYOUT_MISMATCH); return; }
-  // a passenger / non-attending player has no seat count: clear it when the status changes
-  if (range.getColumn() <= COL.STATUS && range.getLastColumn() >= COL.STATUS) {
-    clearSeatsOfPassengers(sh, Math.max(range.getRow(), FIRST_ROW), Math.min(range.getLastRow(), LAST_ROW));
-  }
-  if (range.getLastColumn() < COL.ADDR || range.getColumn() > COL.ADDR) return; // the address was not edited
+  var touches = function (col) { return range.getColumn() <= col && range.getLastColumn() >= col; };
+  var fromRow = Math.max(range.getRow(), FIRST_ROW), toRow = Math.min(range.getLastRow(), LAST_ROW);
+
+  // a passenger / non-attending player has no seat count and does not take anybody back
+  if (touches(COL.STATUS)) clearDriverOnlyFields(sh, fromRow, toRow);
+  // the return address only applies for "Jinam"
+  if (touches(COL.RETURN)) { clearUnusedReturnAddress(sh, fromRow, toRow); checkNewReturnRows(sh, fromRow, toRow); }
+  if (touches(COL.ADDR)) checkEditedRows(sh, range, true, checkRow, COL.CHECK);          // the hall row is included
+  if (touches(COL.RET_ADDR)) checkEditedRows(sh, range, false, checkReturnRow, COL.RET_CHECK);
+}
+
+/** Runs checkFn for the edited hall / player rows, at most MAX_ROWS_PER_EDIT of them. */
+function checkEditedRows(sh, range, includeHall, checkFn, checkCol) {
   var done = 0;
   for (var row = range.getRow(); row <= range.getLastRow(); row++) {
-    if (row !== HALL_ROW && (row < FIRST_ROW || row > LAST_ROW)) continue;
+    var isPlayer = row >= FIRST_ROW && row <= LAST_ROW;
+    if (!isPlayer && !(includeHall && row === HALL_ROW)) continue;
     if (done++ >= MAX_ROWS_PER_EDIT) {
-      sh.getRange(row, COL.CHECK).setValue('⚠ Příliš mnoho řádků najednou, použijte Spolujízdy → Zkontrolovat všechny adresy.');
+      sh.getRange(row, checkCol).setValue('⚠ Příliš mnoho řádků najednou, použijte Spolujízdy → Zkontrolovat všechny adresy.');
       break;
     }
-    checkRow(sh, row);
+    checkFn(sh, row);
   }
 }
 
-function checkRow(sh, row) {
-  var addr = String(sh.getRange(row, COL.ADDR).getValue()).trim();
+function checkRow(sh, row) { checkAddress(sh, row, COL.ADDR, COL.CHECK); }
+
+function checkReturnRow(sh, row) {
+  // the return address is only used when "Jinam" is chosen
+  if (String(sh.getRange(row, COL.RETURN).getValue()) !== RETURN_ELSEWHERE) {
+    sh.getRange(row, COL.RET_CHECK, 1, 4).clearContent();
+    return;
+  }
+  checkAddress(sh, row, COL.RET_ADDR, COL.RET_CHECK);
+}
+
+/** Geocodes the address in addrCol and writes check / found address / lat / lon into the 4 cells from outCol. */
+function checkAddress(sh, row, addrCol, outCol) {
+  var addr = String(sh.getRange(row, addrCol).getValue()).trim();
   var out = addr ? geocode(addr) : { check: '', found: '', lat: '', lon: '' };
-  sh.getRange(row, COL.CHECK, 1, 4).setValues([[out.check, out.found, out.lat, out.lon]]);
+  sh.getRange(row, outCol, 1, 4).setValues([[out.check, out.found, out.lat, out.lon]]);
 }
 
 /* ---------- geocoding ---------- */

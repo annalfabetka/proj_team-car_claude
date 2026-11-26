@@ -62,9 +62,16 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 
 **Počet míst v autě** se vyplňuje jen u řidiček (stav „Určitě beru auto“ nebo „Můžu vzít auto“), celé číslo 2–9 včetně řidičky. U ostatních stavů je políčko šedé a tabulka do něj nepustí žádnou hodnotu. Když hráčka přepne stav na „Potřebuji odvoz“ nebo „Nejedu“, zbylé číslo se samo smaže. Řidička bez počtu míst má políčko oranžové a aplikace před plánem upozorní, že se počítá se 4 místy. Plánovač počet míst u spolucestujících stejně nepoužívá. Nové zápasy (**Nový zápas**) počty míst řidiček nemažou, takže je nemusí zadávat znovu.
 
+**Cesta zpět (sloupce I–O).** Výchozí je, že se všichni vracejí na stejnou adresu jako tam, a pak není nutné nic vyplňovat. Výjimky se zadávají v těchto sloupcích:
+
+- **Návrat**: *Stejně jako tam* (nebo prázdné), *Jinam* (vyplňte adresu návratu), nebo *Odvoz zpět nepotřebuji* (domů se dostanete sami, takže nezabíráte místo v autě).
+- **Zpět vezmu spolucestující**: jen pro řidičky, *ano* (výchozí) nebo *ne*. Řidička, která jede po zápase na chatu a nikoho nevezme, vybere *ne*.
+- **Adresa návratu**: vyplňuje se jen u *Jinam*. Kontroluje se stejně jako běžná adresa a výsledek je ve sloupcích L–O (kontrola, nalezená adresa, souřadnice). U ostatních voleb se adresa i kontrola samy smažou.
+- Políčka, která se v daném případě nevyplňují, jsou šedá. Oranžové je „Jinam“ bez adresy.
+
 **Aktualizace skriptu ve starší tabulce:** vložte novou verzi skriptu `Code.gs` (nahraďte celý starý kód) a uložte. Pak **hned spusťte funkci `migrate`** (v nabídce **Spolujízdy → Aktualizovat starší tabulku (nové řádky)**, po obnovení stránky, nebo v editoru skriptů výběrem funkce `migrate` a tlačítkem **Spustit**). Je to nutné i tehdy, když se rozložení tabulky nezměnilo: funkce se jmenovaly česky a spouštěč kontroly adres odkazoval na starý název, `migrate` ho přeinstaluje. Bez toho by se po úpravě adresy nic nekontrolovalo.
 
-Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), nastaví pravidla pro počet míst, smaže zbylé počty míst u spolucestujících a doplní chybějící nadpisy sloupců (existující text nepřepisuje). Jinak **nic nemaže**: hráčky, adresy a stavy zůstanou. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
+Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), nastaví pravidla pro počet míst a pro sloupce cesty zpět (I–O), smaže zbylé počty míst u spolucestujících a doplní chybějící nadpisy sloupců, třeba nové nadpisy I–O (existující text nepřepisuje). Nové sloupce jsou vpravo, takže se řádky ani stávající sloupce neposunou. Jinak **nic nemaže**: hráčky, adresy a stavy zůstanou. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
 
 **Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou. Pak nastavte datum nového zápasu.
 
@@ -92,6 +99,16 @@ Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek
 Časy v plánu jsou **jen orientační** (typické doby jízdy bez aktuální dopravy). Aplikace to uvádí pod plánem a na konci zprávy do skupiny doporučuje před odjezdem zkontrolovat dopravu v Google Maps nebo Waze.
 
 Časy jízdy počítá veřejný server OSRM a adresy v lokální verzi hledá Nominatim. Obě služby jsou bez záruky dostupnosti. Když OSRM nefunguje, aplikace to oznámí a použije odhad vzdušnou čarou.
+
+### Cesta zpět
+
+Cesta zpět se plánuje jen tehdy, když se někdo nevrací stejně jako tam. Jinak se o ní nic nezobrazuje.
+
+- **Auta zůstávají u haly**, takže zpět mohou jet jen ta, která tam přijela. Spolucestující tedy zpět neřídí. Řidičky se proto vybírají už pro cestu tam tak, aby měly dohromady dost volných míst i na cestu zpět. Když to nejde, plán to řekne („zpět by chybělo aspoň N míst“).
+- **Stejně jako tam, pokud to jde.** Lidé se vracejí v tom autě, v jakém přijeli. Přesouvají se jen ti, jejichž řidička zpět nikoho nebere. Plánovač při rozdělování cesty tam mírně preferuje, aby spolucestující jeli s řidičkou, která je vrátí, takže se přesuny často vůbec nepotřebují. Změny plán vypíše („řidička tam: Anna, zpět: Hana“).
+- **Směr řidičky je hlavní.** Cesta zpět vede od haly přes místa, kde se spolucestující vysadí, k adrese řidičky (domů nebo jinam). Zda kvůli spolucestujícím zajede až k jejich adrese, je na domluvě s řidičkou, plán je jen návrh. U auta se proto ukazuje, o kolik minut jede řidička déle než přímo.
+- **Bez časů.** U cesty zpět se zobrazuje jen pořadí zastávek.
+- Lidé, kteří se vracejí sami, se do cesty zpět nepočítají a uvolňují místo v autě.
 
 ## Struktura repozitáře
 

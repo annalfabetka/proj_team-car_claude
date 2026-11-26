@@ -30,6 +30,8 @@
   const esc = s => String(s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const uid = () => (self.crypto && crypto.randomUUID ? crypto.randomUUID().slice(0, 12) : Math.random().toString(36).slice(2, 12));
+  // Czech plural: 1 místo, 2-4 místa, 5+ míst
+  const plural = (n, one, few, many) => (n === 1 ? one : n >= 2 && n <= 4 ? few : many);
   const nameOf = p => (p.name || '').trim() || '(bez jména)';
   const fmtTime = mins => {
     const m = ((Math.round(mins) % 1440) + 1440) % 1440;
@@ -67,6 +69,15 @@
     $('notices').appendChild(d);
   }
 
+  // ---------- trip back ----------
+  // Where a person goes after the match: the return address when one is given, otherwise home.
+  const returnPlaceOf = p => (p.returnMode === 'elsewhere' && p.retLat != null
+    ? { lat: p.retLat, lon: p.retLon } : { lat: p.lat, lon: p.lon });
+  const returnAddressOf = p => (p.returnMode === 'elsewhere' ? (p.retAddress || '') : (p.address || ''));
+  // anything that differs from "everybody goes home the way they came"
+  const isReturnException = (p, drives) => p.returnMode === 'elsewhere' ||
+    (!drives && p.returnMode === 'self') || (drives && p.takesReturn === false);
+
   // ---------- plan ----------
   function setupPlan(cfg) {
     const getState = cfg.getState, hint = () => (cfg.hint ? cfg.hint() : '');
@@ -82,7 +93,10 @@
       if (state.hall.lat == null) return notice('bad', 'Adresa haly zatím nebyla nalezena. Zkontrolujte ji.' + hint());
       const missing = attendees.filter(p => p.lat == null);
       if (missing.length) return notice('bad', 'Chybí nalezená adresa u: ' + missing.map(nameOf).join(', ') + '.' + hint());
-      const unsure = attendees.filter(p => p.warn).concat(state.hall.warn ? [{ name: 'hala' }] : []);
+      const missingReturn = attendees.filter(p => p.returnMode === 'elsewhere' && p.retLat == null);
+      if (missingReturn.length) return notice('bad', 'Chybí nalezená adresa návratu u: ' + missingReturn.map(nameOf).join(', ') + '.' + hint());
+      const unsure = attendees.filter(p => p.warn || (p.returnMode === 'elsewhere' && p.retWarn))
+        .concat(state.hall.warn ? [{ name: 'hala' }] : []);
       if (unsure.length) notice('warn', 'Adresa není jistá u: ' + unsure.map(nameOf).join(', ') + '. Plán s ní počítá, ale ověřte ji.');
 
       $('plan').disabled = true; $('planStatus').textContent = 'Počítám trasy…';
@@ -91,15 +105,31 @@
       try { dur = await osrmMatrix(points); }
       catch (e) { dur = Planner.fallbackMatrix(points); estimated = true; }
 
-      const people = attendees.map(p => ({ canDrive: DRIVER(p.status), mustDrive: p.status === 'must', seats: p.seats }));
+      const people = attendees.map(p => ({
+        canDrive: DRIVER(p.status), mustDrive: p.status === 'must', seats: p.seats,
+        needsReturnRide: p.returnMode !== 'self',   // false: gets home on their own
+        takesReturn: p.takesReturn !== false,       // false: a driver who takes nobody on the way back
+      }));
       const result = Planner.plan({ dur, people, options: state.settings });
-      $('plan').disabled = false; $('planStatus').textContent = '';
 
-      if (result.error === 'NO_DRIVERS') return notice('bad', 'Nikdo zatím nenabídl auto. Aspoň jedna hráčka musí mít stav „Určitě beru auto“ nebo „Můžu vzít auto“.');
-      if (result.error === 'NOT_ENOUGH_SEATS') return notice('bad', `Nedostatek míst v autech: chybí aspoň ${result.missing}. Další hráčka musí nabídnout auto, nebo někdo zvýšit počet míst.`);
+      if (result.error === 'NO_DRIVERS') { $('plan').disabled = false; $('planStatus').textContent = ''; return notice('bad', 'Nikdo zatím nenabídl auto. Aspoň jedna hráčka musí mít stav „Určitě beru auto“ nebo „Můžu vzít auto“.'); }
+      if (result.error === 'NOT_ENOUGH_SEATS') { $('plan').disabled = false; $('planStatus').textContent = ''; return notice('bad', `Nedostatek míst v autech: chybí aspoň ${result.missing}. Další hráčka musí nabídnout auto, nebo někdo zvýšit počet míst.`); }
+      if (result.error === 'NOT_ENOUGH_RETURN_SEATS') { $('plan').disabled = false; $('planStatus').textContent = ''; return notice('bad', `Zpět by chybělo aspoň ${result.missing} ${plural(result.missing, 'místo', 'místa', 'míst')}: řidičky, které zpět nikoho nevezmou, nechávají ostatní bez odvozu domů. Je potřeba další řidička, která bude spolucestující vracet.`); }
+
+      // the trip back is planned only when somebody does not simply go home the way they came
+      let back = null;
+      const drivers = new Set(result.cars.map(c => c.driver));
+      if (attendees.some((p, i) => isReturnException(p, drivers.has(i)))) {
+        const retPoints = attendees.map(returnPlaceOf).concat({ lat: state.hall.lat, lon: state.hall.lon });
+        let durBack;
+        try { durBack = await osrmMatrix(retPoints); }
+        catch (e) { durBack = Planner.fallbackMatrix(retPoints); estimated = true; }
+        back = Planner.planReturn({ dur: durBack, people, outbound: result, options: state.settings });
+      }
+      $('plan').disabled = false; $('planStatus').textContent = '';
       if (estimated) notice('warn', 'Veřejný routovací server není dostupný, časy jsou odhadnuté vzdušnou čarou. Skutečné časy se mohou lišit.');
 
-      await renderResult(state, result, attendees, estimated);
+      await renderResult(state, result, attendees, estimated, back);
     });
 
     $('copy').addEventListener('click', async () => {
@@ -109,7 +139,7 @@
     });
   }
 
-  async function renderResult(state, result, attendees, estimated) {
+  async function renderResult(state, result, attendees, estimated, back) {
     const arrive = (() => { const [h, m] = state.arrive.split(':').map(Number); return h * 60 + m; })();
     const hallName = state.hall.address.trim();
     const lines = [`Zápas${state.dateText ? ' ' + state.dateText : ''} – sraz v hale ${state.arrive}${hallName ? ' (' + hallName + ')' : ''}`, ''];
@@ -138,12 +168,62 @@
       lines.push(`🚗 ${stops.map(s => s.msg).join(' → ')}`);
     });
 
+    if (back) html += renderBack(result, attendees, back, lines);
+
     lines.push('', TIMES_DISCLAIMER_SHORT);
     $('result').innerHTML = html;
     $('msg').value = lines.join('\n');
     $('resultSec').hidden = false;
     $('resultSec').scrollIntoView({ behavior: 'smooth', block: 'start' });
     await renderMap(state, result, attendees);
+  }
+
+  // The trip back: returns the HTML and appends the matching lines of the group message.
+  // No clock times (they are not needed); the driver's own destination is what matters most,
+  // so the drop-offs are only a suggestion and the extra minutes are shown to her.
+  function renderBack(result, attendees, back, lines) {
+    const carNo = new Map(result.cars.map((c, i) => [c.driver, i + 1]));
+    const moved = new Map(back.reshuffled.map(r => [r.person, r]));
+    let html = '<h3 class="back-title">Cesta zpět</h3>' +
+      '<p class="small" style="margin-top:0">Auta jsou stejná jako cestou tam a lidé se vracejí stejně. Přesouvají se jen ti, jejichž řidička zpět nikoho nebere. ' +
+      'Směr řidičky je pro plán hlavní. Zda kvůli spolucestujícím zajede až k jejich adrese, je na domluvě s ní.</p>';
+    lines.push('', '↩ Zpět:');
+    back.cars.forEach(car => {
+      const driver = attendees[car.driver];
+      const color = COLORS[(carNo.get(car.driver) - 1) % COLORS.length];
+      const elsewhere = driver.returnMode === 'elsewhere';
+      const nobody = driver.takesReturn === false;
+      const dest = elsewhere ? `jinam (${esc(driver.retAddress || '')})` : 'domů';
+      const items = car.passengers.map((pi, k) => {
+        const p = attendees[pi], m = moved.get(pi);
+        const note = m ? ` · přesun z auta ${carNo.get(m.fromDriver)}` : '';
+        return `<li><span class="t">${k + 1}.</span><span>vysadit <b>${esc(nameOf(p))}</b> <span class="sub">${esc(returnAddressOf(p))}${note}</span></span></li>`;
+      });
+      if (!items.length) items.push(`<li><span class="t"></span><span class="sub">${nobody ? 'nikoho nebere' : 'jede sama'}</span></li>`);
+      const extra = car.passengers.length && car.extraMin >= 1
+        ? `<p class="sub" style="margin:6px 0 0">Řidička jede o ${Math.round(car.extraMin)} min déle než přímo na svou adresu.</p>` : '';
+      html += `<div class="car" style="border-left-color:${color}"><h3>Auto ${carNo.get(car.driver)}: ${esc(nameOf(driver))} → ${dest}</h3><ol>${items.join('')}</ol>${extra}</div>`;
+      lines.push(`🚗 ${nameOf(driver)} (${elsewhere ? 'jinam' : 'domů'}${nobody ? ', nikoho nebere' : ''}): ${car.passengers.map(pi => nameOf(attendees[pi])).join(' → ') || 'sama'}`);
+    });
+    if (back.reshuffled.length) {
+      // names are not declined on purpose: "Dana (řidička tam: Anna, zpět: Hana)"
+      const txt = back.reshuffled.map(r =>
+        `${nameOf(attendees[r.person])} (řidička tam: ${nameOf(attendees[r.fromDriver])}, zpět: ${nameOf(attendees[r.toDriver])})`);
+      html += `<p class="info">Změna oproti cestě tam: ${esc(txt.join('; '))}.</p>`;
+      lines.push('Změna oproti cestě tam: ' + txt.join('; ') + '.');
+    }
+    if (back.unplaced.length) {
+      const names = back.unplaced.map(pi => nameOf(attendees[pi])).join(', ');
+      html += `<div class="notice bad">Zpět se nevešli: ${esc(names)}. Potřebují další odvoz.</div>`;
+      lines.push(`⚠ Zpět zatím bez místa: ${names}.`);
+    }
+    if (back.selfReturn.length) {
+      const names = back.selfReturn.map(pi => nameOf(attendees[pi])).join(', ');
+      html += `<p class="small">Zpět bez odvozu (vrací se samy): ${esc(names)}.</p>`;
+      lines.push(`Zpět se vrací samy: ${names}.`);
+    }
+    lines.push('Vyvezení zpět je návrh, zajížďky se domlouvají s řidičkou.');
+    return html;
   }
 
   // ---------- map ----------

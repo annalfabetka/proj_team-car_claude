@@ -141,4 +141,156 @@ test('timeline is consistent', () => {
   assert.strictEqual(c.totalMin, 5 + 2 + 5 + 2 + 10);
 });
 
+// ---------- the trip back ----------
+const returnSeatsOf = (people, res) => res.cars.reduce((sum, c) => sum + (people[c.driver].takesReturn === false ? 0 : people[c.driver].seats - 1), 0);
+const pt = (x, y) => ({ x, y });
+
+test('return: drivers are chosen so that there are enough seats on the way back', () => {
+  // A sits in the middle and would be the natural driver, but takes nobody back
+  const pts = [pt(0, 0), pt(30, 30), pt(-2, 1), pt(1, -2), pt(-1, -1), pt(0, 5)];
+  const people = [
+    { canDrive: true, seats: 4, takesReturn: false },   // 0 A
+    { canDrive: true, seats: 2 },                       // 1 B
+    { canDrive: true, seats: 4 },                       // 2 C
+    { canDrive: false }, { canDrive: false },           // 3, 4 passengers
+  ];
+  const res = Planner.plan({ dur: euclid(pts), people, options: { carPenalty: 5 } });
+  validate(res, people);
+  const demand = people.length - res.carCount;
+  assert(returnSeatsOf(people, res) >= demand, 'the chosen cars must have room for everybody on the way back');
+  assert(res.cars.some(c => c.driver === 2), 'C (who takes people back) must drive');
+});
+test('return: an error when no choice of drivers has enough seats back', () => {
+  const pts = [pt(0, 0), pt(1, 0), pt(5, 5)];
+  const people = [{ canDrive: true, seats: 4, takesReturn: false }, { canDrive: false }];
+  const res = Planner.plan({ dur: euclid(pts), people });
+  assert.strictEqual(res.error, 'NOT_ENOUGH_RETURN_SEATS');
+  assert.strictEqual(res.missing, 1);
+});
+test('return: people who get home on their own do not need a seat back', () => {
+  const pts = [pt(0, 0), pt(1, 0), pt(5, 5)];
+  const people = [{ canDrive: true, seats: 4, takesReturn: false }, { canDrive: false, needsReturnRide: false }];
+  const res = Planner.plan({ dur: euclid(pts), people });
+  assert(!res.error, 'nobody needs a ride back, so a driver who takes nobody is fine');
+  validate(res, people);
+});
+test('return: without any return information the plan is exactly the same as before', () => {
+  for (let seed = 1; seed <= 6; seed++) {
+    const r = rng(seed);
+    const n = 8;
+    const pts = Array.from({ length: n + 1 }, () => pt(r() * 40, r() * 40));
+    const base = Array.from({ length: n }, (_, i) => ({ canDrive: i < 3, seats: 4 }));
+    const explicit = base.map(p => Object.assign({ needsReturnRide: true, takesReturn: true }, p));
+    const a = Planner.plan({ dur: euclid(pts), people: base, options: { seed } });
+    const b = Planner.plan({ dur: euclid(pts), people: explicit, options: { seed } });
+    assert.deepStrictEqual(a, b);
+  }
+});
+test('return: passengers prefer a driver who also takes them back (the penalty has effect)', () => {
+  // A (west, takes nobody back) is closest to the passengers, B is far east
+  const pts = [pt(-10, 0), pt(40, 0), pt(-12, 1), pt(-11, -1), pt(-13, 0), pt(0, 0)];
+  const people = [
+    { canDrive: true, seats: 5, takesReturn: false }, { canDrive: true, seats: 4 },
+    { canDrive: false }, { canDrive: false }, { canDrive: false },
+  ];
+  const withPenalty = Planner.plan({ dur: euclid(pts), people, options: { reshufflePenalty: 100, carPenalty: 0, maxDetour: 1e9 } });
+  const without = Planner.plan({ dur: euclid(pts), people, options: { reshufflePenalty: 0, carPenalty: 0, maxDetour: 1e9 } });
+  const carOf = (res, d) => res.cars.find(c => c.driver === d);
+  assert.strictEqual(carOf(withPenalty, 0).passengers.length, 0, 'with the penalty nobody rides with A');
+  assert.strictEqual(carOf(withPenalty, 1).passengers.length, 3);
+  assert(carOf(without, 0).passengers.length > 0, 'without the penalty the nearby driver is used');
+});
+
+test('planReturn: by default everyone rides home in the same car as on the way there', () => {
+  const r = rng(7);
+  const n = 9;
+  const pts = Array.from({ length: n + 1 }, () => pt(r() * 40, r() * 40));
+  const people = Array.from({ length: n }, (_, i) => ({ canDrive: i < 3, seats: 4 }));
+  const out = Planner.plan({ dur: euclid(pts), people });
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound: out });
+  assert.deepStrictEqual(back.reshuffled, []); assert.deepStrictEqual(back.unplaced, []);
+  out.cars.forEach(c => {
+    const b = back.cars.find(x => x.driver === c.driver);
+    assert.deepStrictEqual(b.passengers.slice().sort(), c.passengers.slice().sort(), 'same people in the same car');
+  });
+});
+test('planReturn: only people whose driver takes nobody back change cars', () => {
+  // cars: A drives 2,3; B drives 4; C drives 5. A takes nobody back; B and C have a free seat each
+  const pts = [pt(0, 0), pt(10, 0), pt(-10, 0), pt(-3, 1), pt(-2, 2), pt(11, 1), pt(-4, -1), pt(0, 0)];
+  const people = [
+    { canDrive: true, seats: 4, takesReturn: false }, { canDrive: true, seats: 3 }, { canDrive: true, seats: 3 },
+    { canDrive: false }, { canDrive: false }, { canDrive: false },
+  ];
+  const outbound = { cars: [
+    { driver: 0, passengers: [3, 4] }, { driver: 1, passengers: [5] }, { driver: 2, passengers: [] },
+  ] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound });
+  assert.deepStrictEqual(back.cars.find(c => c.driver === 0).passengers, [], 'A takes nobody');
+  assert.deepStrictEqual(back.unplaced, []);
+  assert.deepStrictEqual(back.reshuffled.map(r => r.person).sort(), [3, 4]);
+  assert(back.reshuffled.every(r => r.fromDriver === 0 && r.toDriver !== 0));
+  assert.deepStrictEqual(back.cars.find(c => c.driver === 1).passengers.includes(5), true, 'the others stay where they were');
+  const placed = back.cars.flatMap(c => c.passengers).sort();
+  assert.deepStrictEqual(placed, [3, 4, 5]);
+  back.cars.forEach(c => assert(c.passengers.length <= people[c.driver].seats - 1, 'capacity respected'));
+});
+test('planReturn: someone who gets home on their own is not planned and frees a seat', () => {
+  const pts = [pt(0, 0), pt(-5, 0), pt(5, 0), pt(0, 0)];
+  const people = [{ canDrive: true, seats: 3 }, { canDrive: false, needsReturnRide: false }, { canDrive: false }];
+  const outbound = { cars: [{ driver: 0, passengers: [1, 2] }] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound });
+  assert.deepStrictEqual(back.cars[0].passengers, [2]);
+  assert.deepStrictEqual(back.selfReturn, [1]);
+});
+test("planReturn: the driver's own destination shapes the route (drop-offs on the way come first)", () => {
+  // hall at the origin; the driver goes far east (the cabin); one passenger lives east, one west
+  const pts = [pt(100, 0), pt(10, 0), pt(-10, 0), pt(0, 0)];
+  const people = [{ canDrive: true, seats: 3 }, { canDrive: false }, { canDrive: false }];
+  const outbound = { cars: [{ driver: 0, passengers: [1, 2] }] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9 } });
+  assert.deepStrictEqual(back.cars[0].passengers, [2, 1], 'west first, then east (on the way to the cabin)');
+  assert.strictEqual(Math.round(back.cars[0].directMin), 100);
+  assert(back.cars[0].extraMin > 0 && back.cars[0].extraMin < 25, 'the extra time is reported: ' + back.cars[0].extraMin);
+});
+test('planReturn: the placement of re-seated people equals an exhaustive search', () => {
+  for (let seed = 1; seed <= 10; seed++) {
+    const r = rng(seed);
+    const pts = Array.from({ length: 8 }, () => pt(r() * 40, r() * 40)); // 0..6 people, 7 hall
+    const people = [
+      { canDrive: true, seats: 5, takesReturn: false }, { canDrive: true, seats: 3 }, { canDrive: true, seats: 4 },
+      { canDrive: false }, { canDrive: false }, { canDrive: false }, { canDrive: false },
+    ];
+    const outbound = { cars: [{ driver: 0, passengers: [3, 4, 5] }, { driver: 1, passengers: [6] }, { driver: 2, passengers: [] }] };
+    const opt = { stopMin: 1, maxDetour: 1e9, seed };
+    const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: opt });
+    const got = back.cars.reduce((sum, c) => sum + c.totalMin, 0);
+    assert.deepStrictEqual(back.unplaced, []);
+
+    const dur = euclid(pts), H = 7;
+    const perms = a => a.length <= 1 ? [a] : a.flatMap((x, i) => perms(a.filter((_, j) => j !== i)).map(q => [x, ...q]));
+    const cost = (d, list) => Math.min(...perms(list).map(ord => {
+      let t = 0, prev = H; for (const q of ord) { t += dur[prev][q] + opt.stopMin; prev = q; } return t + dur[prev][d];
+    }));
+    let best = Infinity;
+    for (let code = 0; code < 8; code++) { // each of the 3 orphans goes to car 1 or car 2
+      const l1 = [6], l2 = [];
+      [3, 4, 5].forEach((p, k) => ((code >> k) & 1 ? l1 : l2).push(p));
+      if (l1.length > 2 || l2.length > 3) continue;
+      best = Math.min(best, cost(1, l1) + cost(2, l2) + cost(0, []));
+    }
+    assert(Math.abs(got - best) < 1e-6, `seed ${seed}: ${got.toFixed(2)} vs ${best.toFixed(2)}`);
+  }
+});
+test('planReturn: reports people who cannot be placed when there is not enough room', () => {
+  const pts = [pt(0, 0), pt(5, 0), pt(-5, 0), pt(0, 5), pt(0, 0)];
+  const people = [
+    { canDrive: true, seats: 3, takesReturn: false }, { canDrive: true, seats: 2 },
+    { canDrive: false }, { canDrive: false },
+  ];
+  const outbound = { cars: [{ driver: 0, passengers: [2, 3] }, { driver: 1, passengers: [] }] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound });
+  assert.strictEqual(back.unplaced.length, 1, 'one seat is missing');
+  assert.strictEqual(back.cars.flatMap(c => c.passengers).length, 1);
+});
+
 console.log(`\nAll ${passed} tests passed.`);

@@ -27,6 +27,7 @@ function makeRange(sheet, r, c, nr = 1, nc = 1) {
     setValues: vs => { vs.forEach((row, i) => row.forEach((v, j) => cells.set(key(r + i, c + j), v))); return proxied; },
     clearContent: () => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) cells.delete(key(r + i, c + j)); return proxied; },
     protect: () => ({ setWarningOnly: () => {} }),
+    getA1Notation: () => r + ',' + c + ',' + nr + ',' + nc,
   };
   // unknown methods (formatting etc.) return the same range, as in Sheets, so calls can be chained
   const proxied = new Proxy(self, { get: (t, p) => (p in t ? t[p] : () => proxied) });
@@ -36,6 +37,7 @@ const sheet = {
   getName: () => 'Tým', setName() {},
   getLastRow: () => Math.max(0, ...[...cells.keys()].map(k => +k.split(',')[0])),
   getLastColumn: () => 8,
+  getProtections: () => [],
   getConditionalFormatRules: () => cfRules.slice(),
   clearConditionalFormatRules: () => { cfRules = []; },
   setConditionalFormatRules: rules => { cfRules = rules.slice(); },
@@ -72,7 +74,8 @@ function ruleBuilder() {
   const rule = { formula: null };
   const b = new Proxy({}, {
     get: (t, p) => p === 'whenFormulaSatisfied' ? f => { rule.formula = f; return b; }
-      : p === 'build' ? () => ({ getBooleanCondition: () => (rule.formula ? { getCriteriaValues: () => [rule.formula] } : null), formula: rule.formula })
+      : p === 'setRanges' ? rs => { rule.ranges = rs; return b; }
+      : p === 'build' ? () => ({ getBooleanCondition: () => (rule.formula ? { getCriteriaValues: () => [rule.formula] } : null), getRanges: () => rule.ranges || [], formula: rule.formula })
       : () => b,
   });
   return b;
@@ -81,6 +84,7 @@ function validationBuilder() {
   const v = {};
   const b = new Proxy({}, {
     get: (t, p) => p === 'requireFormulaSatisfied' ? f => { v.formula = f; return b; }
+      : p === 'requireValueInList' ? l => { v.list = l; return b; }
       : p === 'setHelpText' ? h => { v.help = h; return b; }
       : p === 'build' ? () => v
       : () => b,
@@ -90,6 +94,7 @@ function validationBuilder() {
 const sandbox = {
   console,
   SpreadsheetApp: {
+    ProtectionType: { RANGE: 'RANGE' },
     getActive: () => ss,
     getUi: () => ({ alert: m => { calls.alerts.push(m); return uiAnswer; }, ButtonSet: { YES_NO: 1 }, Button: { YES: 'YES' }, createMenu: () => chain() }),
     newDataValidation: () => validationBuilder(), newConditionalFormatRule: () => ruleBuilder(),
@@ -118,7 +123,7 @@ const sandbox = {
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(path.join(__dirname, 'Code.gs'), 'utf8'), sandbox);
-const { LINK_ROW, HALL_ROW, DATE_ROW, TIME_ROW, HEADER_ROW, FIRST_ROW, COL } = sandbox; // the row numbers are taken from the script
+const { LINK_ROW, HALL_ROW, DATE_ROW, TIME_ROW, HEADER_ROW, FIRST_ROW, COL, HEADER_LABELS, RETURN_MODES } = sandbox; // the row numbers are taken from the script
 const get = (r, c) => cells.get(key(r, c)) ?? '';
 const edit = (r, c, nr = 1, nc = 1) => sandbox.onEditCheck({ range: makeRange(sheet, r, c, nr, nc) });
 const row = k => FIRST_ROW + k; // the k-th player
@@ -235,7 +240,8 @@ function layoutCells(extra = []) {
   ]);
 }
 const seatsCell = row => key(row, COL.SEATS);
-const ruleCount = formula => cfRules.filter(r => r.getBooleanCondition() && r.getBooleanCondition().getCriteriaValues()[0] === formula).length;
+const ruleCount = (formula, col) => cfRules.filter(r => r.getBooleanCondition() && r.getBooleanCondition().getCriteriaValues()[0] === formula &&
+  (col === undefined || r.getRanges().some(g => +g.getA1Notation().split(',')[1] === col))).length;
 const C = '$C' + FIRST_ROW, D = '$D' + FIRST_ROW;
 const GREY = '=NOT(OR(' + C + '="Určitě beru auto",' + C + '="Můžu vzít auto"))';
 const ORANGE = '=AND(OR(' + C + '="Určitě beru auto",' + C + '="Můžu vzít auto"),NOT(ISNUMBER(' + D + ')))';
@@ -252,8 +258,8 @@ test('seat validation: a seat count is allowed only for drivers (2-9, whole numb
   assert(v.help.includes('jen u řidiček'), 'the help text must explain the rule');
 });
 test('seat colours: orange for a driver without seats, grey for everyone else (each rule once)', () => {
-  assert.strictEqual(ruleCount(ORANGE), 1);
-  assert.strictEqual(ruleCount(GREY), 1);
+  assert.strictEqual(ruleCount(ORANGE, COL.SEATS), 1);
+  assert.strictEqual(ruleCount(GREY, COL.SEATS), 1);
 });
 test('choosing a passenger status clears a stale seat count; driver and empty statuses keep it', () => {
   const set = (k, status, seats) => { cells.set(key(row(k), COL.STATUS), status); cells.set(seatsCell(row(k)), seats); edit(row(k), COL.STATUS); };
@@ -290,10 +296,10 @@ test('migrate() applies the seat rules to an older sheet once, and tidies stale 
   assert.strictEqual(get(row(1), COL.SEATS), 5);
   assert(calls.alerts[calls.alerts.length - 1].includes('Vymazán zbylý počet míst'));
   assert(validations.get(seatsCell(FIRST_ROW)).formula.includes('INT('), 'the new validation must be applied');
-  assert.strictEqual(ruleCount(ORANGE), 1); assert.strictEqual(ruleCount(GREY), 1);
+  assert.strictEqual(ruleCount(ORANGE, COL.SEATS), 1); assert.strictEqual(ruleCount(GREY, COL.SEATS), 1);
   sandbox.migrate(); sandbox.migrate();
-  assert.strictEqual(ruleCount(ORANGE), 1, 'no duplicate rules after repeated runs');
-  assert.strictEqual(ruleCount(GREY), 1);
+  assert.strictEqual(ruleCount(ORANGE, COL.SEATS), 1, 'no duplicate rules after repeated runs');
+  assert.strictEqual(ruleCount(GREY, COL.SEATS), 1);
 });
 test('migrate() fills in missing column headings, keeps existing ones and leaves a complete header alone', () => {
   cells = new Map();
@@ -302,8 +308,8 @@ test('migrate() fills in missing column headings, keeps existing ones and leaves
   cells.set(key(HEADER_ROW, 1), 'Jméno'); cells.set(key(HEADER_ROW, 4), 'Kapacita auta'); // renamed by hand
   cells.set(key(row(0), 1), 'Anna');
   sandbox.migrate();
-  const header = Array.from({ length: 8 }, (_, i) => get(HEADER_ROW, i + 1));
-  assert.deepStrictEqual(header, ['Jméno', 'Adresa', 'Stav', 'Kapacita auta', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']);
+  const header = Array.from({ length: HEADER_LABELS.length }, (_, i) => get(HEADER_ROW, i + 1));
+  assert.deepStrictEqual(header, Array.from(HEADER_LABELS).map((l, i) => (i === 3 ? 'Kapacita auta' : l)));
   assert(calls.alerts[calls.alerts.length - 1].includes('Doplněny chybějící nadpisy'));
   assert.strictEqual(get(row(0), 1), 'Anna', 'players must not be touched');
   const before = new Map(cells);
@@ -334,8 +340,8 @@ test('migrate() repairs a damaged header: restores headings and removes dropdown
   validations.clear();
   validations.set(key(HEADER_ROW, COL.STATUS), { formula: 'x' }); validations.set(key(HEADER_ROW, COL.SEATS), { formula: 'y' });
   sandbox.migrate();
-  const header = Array.from({ length: 8 }, (_, i) => get(HEADER_ROW, i + 1));
-  assert.deepStrictEqual(header, ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']);
+  const header = Array.from({ length: HEADER_LABELS.length }, (_, i) => get(HEADER_ROW, i + 1));
+  assert.deepStrictEqual(header, Array.from(HEADER_LABELS));
   assert(!validations.has(key(HEADER_ROW, COL.STATUS)) && !validations.has(key(HEADER_ROW, COL.SEATS)), 'no dropdown on headings');
   assert(validations.has(key(FIRST_ROW, COL.STATUS)), 'the status dropdown starts at the first player row');
   assert(validations.has(key(FIRST_ROW, COL.SEATS)));
@@ -349,6 +355,91 @@ test('the new-match reminder is worded correctly (no function name in a sentence
   const msg = calls.alerts[calls.alerts.length - 1];
   assert(msg.includes('nastavit nové datum'), msg);
   assert(!msg.includes('setup'), msg);
+});
+const RET_RULES = () => {   // [formula, column]
+  const r = FIRST_ROW;
+  return [
+    ['=LEFT($L' + r + ',1)="✗"', COL.RET_CHECK], ['=LEFT($L' + r + ',1)="⚠"', COL.RET_CHECK], ['=LEFT($L' + r + ',1)="✓"', COL.RET_CHECK],
+    ['=AND($I' + r + '="Jinam",$K' + r + '="")', COL.RET_ADDR], ['=$I' + r + '<>"Jinam"', COL.RET_ADDR],
+    ['=NOT(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"))', COL.TAKES_BACK],
+  ];
+};
+test('trip back: setup() creates the headings, dropdowns and colour rules of columns I-O', () => {
+  cells = new Map(); cfRules = []; validations.clear();
+  sandbox.setup();
+  assert.deepStrictEqual(Array.from({ length: 7 }, (_, i) => get(HEADER_ROW, COL.RETURN + i)),
+    ['Návrat', 'Zpět vezmu spolucestující', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět']);
+  assert.deepStrictEqual(Array.from(validations.get(key(FIRST_ROW, COL.RETURN)).list), ['Stejně jako tam', 'Jinam', 'Odvoz zpět nepotřebuji']);
+  assert.deepStrictEqual(Array.from(validations.get(key(FIRST_ROW, COL.TAKES_BACK)).list), ['ano', 'ne']);
+  RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'rule once: ' + f));
+  assert.strictEqual(ruleCount(GREY), 2, 'the same grey formula is used for the seats and for "takes back" (two ranges)');
+});
+test('trip back: the return address is checked like an address (columns L-O) and leaves E-H alone', () => {
+  const r = row(0);
+  cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(key(r, COL.RETURN), 'Jinam');
+  cells.set(key(r, COL.RET_ADDR), 'Vinohradská 12, Praha');
+  cells.set(key(r, COL.CHECK), 'untouched');
+  edit(r, COL.RET_ADDR);
+  assert.strictEqual(get(r, COL.RET_CHECK), '✓ Adresa nalezena');
+  assert.strictEqual(get(r, COL.RET_FOUND), 'Vinohradská 12, 120 00 Praha 2');
+  assert.strictEqual(get(r, COL.RET_LAT), '50.075538'); assert.strictEqual(get(r, COL.RET_LON), '14.437801');
+  assert.strictEqual(typeof get(r, COL.RET_LAT), 'string');
+  assert.strictEqual(get(r, COL.CHECK), 'untouched', 'the outbound check must not be touched');
+});
+test('trip back: typing the address first and choosing "Jinam" afterwards still checks it', () => {
+  const r = row(1);
+  cells.set(key(r, COL.RET_ADDR), 'Vinohradská 12, Praha');             // typed while the mode was still empty
+  cells.set(key(r, COL.RETURN), 'Jinam');
+  edit(r, COL.RETURN);
+  assert.strictEqual(get(r, COL.RET_CHECK), '✓ Adresa nalezena');
+});
+test('trip back: choosing something other than "Jinam" clears the return address and its check', () => {
+  const r = row(0);
+  assert.notStrictEqual(get(r, COL.RET_ADDR), '');
+  cells.set(key(r, COL.RETURN), 'Stejně jako tam');
+  edit(r, COL.RETURN);
+  for (const col of [COL.RET_ADDR, COL.RET_CHECK, COL.RET_FOUND, COL.RET_LAT, COL.RET_LON]) assert.strictEqual(get(r, col), '', 'column ' + col);
+  assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam', 'the choice itself stays');
+});
+test('trip back: an address in a row that is not "Jinam" is not geocoded', () => {
+  const r = row(2), n = calls.geocode;
+  cells.set(key(r, COL.RETURN), 'Odvoz zpět nepotřebuji'); cells.set(key(r, COL.RET_ADDR), 'Vinohradská 12, Praha');
+  edit(r, COL.RET_ADDR);
+  assert.strictEqual(calls.geocode, n); assert.strictEqual(get(r, COL.RET_CHECK), '');
+});
+test('trip back: a passenger status clears "takes passengers back" together with the seat count', () => {
+  const r = row(3);
+  cells.set(key(r, COL.STATUS), 'Potřebuji odvoz'); cells.set(key(r, COL.SEATS), 4); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  edit(r, COL.STATUS);
+  assert.strictEqual(get(r, COL.SEATS), ''); assert.strictEqual(get(r, COL.TAKES_BACK), '');
+  cells.set(key(r, COL.STATUS), 'Můžu vzít auto'); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  edit(r, COL.STATUS);
+  assert.strictEqual(get(r, COL.TAKES_BACK), 'ne', 'a driver keeps the answer');
+});
+test('trip back: the hall row and the rows above the players are not return rows', () => {
+  const n = calls.geocode;
+  cells.set(key(HALL_ROW, COL.RET_ADDR), 'Vinohradská 12, Praha');
+  edit(HALL_ROW, COL.RET_ADDR); edit(HEADER_ROW, COL.RET_ADDR);
+  assert.strictEqual(calls.geocode, n); assert.strictEqual(get(HALL_ROW, COL.RET_CHECK), '');
+});
+test('trip back: checkAll also checks the return addresses', () => {
+  const r = row(5);
+  cells.set(key(r, COL.RETURN), 'Jinam'); cells.set(key(r, COL.RET_ADDR), 'asdfgh qwerty');
+  sandbox.checkAll();
+  assert(get(r, COL.RET_CHECK).startsWith('✗'), get(r, COL.RET_CHECK));
+});
+test('trip back: migrate() adds the return columns to a sheet without them, once and without touching anything', () => {
+  cells = layoutCells([[key(HEADER_ROW, 2), 'Adresa'], [key(row(0), 1), 'Anna'], [key(row(0), COL.STATUS), 'Určitě beru auto'], [seatsCell(row(0)), 4]]);
+  cfRules = []; validations.clear();
+  sandbox.migrate();
+  assert.deepStrictEqual(Array.from({ length: 7 }, (_, i) => get(HEADER_ROW, COL.RETURN + i)),
+    ['Návrat', 'Zpět vezmu spolucestující', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět']);
+  assert.deepStrictEqual(Array.from(validations.get(key(FIRST_ROW, COL.RETURN)).list), Array.from(RETURN_MODES));
+  RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, f));
+  assert.strictEqual(get(row(0), 1), 'Anna'); assert.strictEqual(get(row(0), COL.SEATS), 4);
+  sandbox.migrate(); sandbox.migrate();
+  RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'no duplicates after reruns: ' + f));
+  assert.strictEqual(ruleCount(GREY, COL.SEATS), 1); assert.strictEqual(ruleCount(GREY, COL.TAKES_BACK), 1);
 });
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');
