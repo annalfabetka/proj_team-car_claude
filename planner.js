@@ -75,6 +75,16 @@
     return out;
   }
 
+  // all k-element combinations of arr (in order)
+  function combinations(arr, k) {
+    const out = [];
+    (function rec(start, cur) {
+      if (cur.length === k) { out.push(cur.slice()); return; }
+      for (let i = start; i < arr.length; i++) { cur.push(arr[i]); rec(i + 1, cur); cur.pop(); }
+    })(0, []);
+    return out;
+  }
+
   function subsets(items) {
     const out = [];
     for (let mask = 0; mask < (1 << items.length); mask++) {
@@ -336,66 +346,80 @@
     });
     const willing = base.map((_, i) => i).filter(i => capacity(base[i].driver) > 0);
 
-    let cars = base.map(c => c.pass.slice());
-    let unplaced = [];
-    if (orphans.length) {
-      const rng = mulberry32(o.seed);
-      const cost = (ci, list) => route(base[ci].driver, list).cost;
-      let best = null;
-      for (let r = 0; r < o.restarts; r++) {
-        const order = orphans.slice();
-        if (r === 0) order.sort((a, b) => dur[H][b] - dur[H][a]);
-        else for (let i = order.length - 1; i > 0; i--) {
-          const j = Math.floor(rng() * (i + 1));
-          [order[i], order[j]] = [order[j], order[i]];
+    // Everybody may change cars when that is clearly better (e.g. two people go to the same village), but
+    // "on principle" people keep their car, so every change has to save more than `reshufflePenalty` minutes.
+    // Passengers who must move (their car has no room for them on the way back) change cars in any case.
+    const cost = (ci, list) => route(base[ci].driver, list).cost +
+      o.reshufflePenalty * list.filter(p => fromDriver.get(p) !== base[ci].driver).length;
+    const rng = mulberry32(o.seed);
+    let best = null;
+    const rounds = o.restarts;   // round 0 is the plain start, later rounds shake the start up a little
+    for (let r = 0; r < rounds; r++) {
+      const order = orphans.slice();
+      if (r === 0) order.sort((a, b) => dur[H][b] - dur[H][a]);
+      else for (let i = order.length - 1; i > 0; i--) {
+        const j = Math.floor(rng() * (i + 1));
+        [order[i], order[j]] = [order[j], order[i]];
+      }
+      const trial = base.map(c => c.pass.slice());
+      const miss = [];
+      for (const p of order) { // insert into the willing car where it adds the least
+        let bc = -1, bd = Infinity;
+        for (const ci of willing) {
+          if (trial[ci].length >= capacity(base[ci].driver)) continue;
+          const delta = cost(ci, trial[ci].concat(p)) - cost(ci, trial[ci]);
+          if (delta < bd) { bd = delta; bc = ci; }
         }
-        const trial = base.map(c => c.pass.slice());
-        const miss = [];
-        for (const p of order) { // insert into the willing car where it adds the least
-          let bc = -1, bd = Infinity;
-          for (const ci of willing) {
-            if (trial[ci].length >= capacity(base[ci].driver)) continue;
-            const delta = cost(ci, trial[ci].concat(p)) - cost(ci, trial[ci]);
-            if (delta < bd) { bd = delta; bc = ci; }
-          }
-          if (bc < 0) miss.push(p); else trial[bc].push(p);
-        }
-        const moved = new Set(orphans); // only the people being re-placed may move again
-        let improved = true;
-        while (improved) {
-          improved = false;
-          for (const a of willing) {
-            for (const p of trial[a].slice()) {
-              if (!moved.has(p)) continue;
-              for (const b of willing) {
-                if (a === b) continue;
-                const aWithout = trial[a].filter(x => x !== p);
-                if (trial[b].length < capacity(base[b].driver)) {
-                  const delta = cost(b, trial[b].concat(p)) + cost(a, aWithout) - cost(a, trial[a]) - cost(b, trial[b]);
-                  if (delta < -1e-9) { trial[a] = aWithout; trial[b] = trial[b].concat(p); improved = true; break; }
-                }
-                for (const q of trial[b].slice()) {
-                  if (!moved.has(q)) continue;
-                  const bSwap = trial[b].filter(x => x !== q).concat(p), aSwap = aWithout.concat(q);
-                  const delta = cost(a, aSwap) + cost(b, bSwap) - cost(a, trial[a]) - cost(b, trial[b]);
-                  if (delta < -1e-9) { trial[a] = aSwap; trial[b] = bSwap; improved = true; break; }
-                }
-                if (improved) break;
-              }
-              if (improved) break;
-            }
-            if (improved) break;
-          }
-        }
-        const total = trial.reduce((sum, l, ci) => sum + cost(ci, l), 0);
-        if (!best || miss.length < best.miss.length || (miss.length === best.miss.length && total < best.total)) {
-          best = { total, trial, miss };
+        if (bc < 0) miss.push(p); else trial[bc].push(p);
+      }
+      if (r > 0) { // a few random moves to leave a local optimum of the previous rounds
+        for (let kick = 0; kick < 1 + (r % 3); kick++) {
+          const from = willing.filter(ci => trial[ci].length > 0);
+          if (!from.length) break;
+          const a = from[Math.floor(rng() * from.length)];
+          const to = willing.filter(ci => ci !== a && trial[ci].length < capacity(base[ci].driver));
+          if (!to.length) continue;
+          const b = to[Math.floor(rng() * to.length)];
+          const person = trial[a][Math.floor(rng() * trial[a].length)];
+          trial[a] = trial[a].filter(x => x !== person);
+          trial[b] = trial[b].concat(person);
         }
       }
-      cars = best.trial; unplaced = best.miss;
+      // best-improvement local search: moves of 1-3 people at once (a whole group with the same destination can
+      // pay off although moving one of them does not) and swaps between two cars, until nothing improves
+      for (;;) {
+        let bestMove = null, bestDelta = -1e-9;
+        for (const a of willing) {
+          for (const b of willing) {
+            if (a === b) continue;
+            const spare = capacity(base[b].driver) - trial[b].length;
+            for (let k = 1; k <= Math.min(3, trial[a].length, spare); k++) {
+              for (const group of combinations(trial[a], k)) {
+                const aWithout = trial[a].filter(x => !group.includes(x)), bWith = trial[b].concat(group);
+                const delta = cost(b, bWith) + cost(a, aWithout) - cost(a, trial[a]) - cost(b, trial[b]);
+                if (delta < bestDelta) { bestDelta = delta; bestMove = { a, b, aNew: aWithout, bNew: bWith }; }
+              }
+            }
+            for (const x of trial[a]) {
+              for (const y of trial[b]) {
+                const aSwap = trial[a].filter(q => q !== x).concat(y), bSwap = trial[b].filter(q => q !== y).concat(x);
+                const delta = cost(a, aSwap) + cost(b, bSwap) - cost(a, trial[a]) - cost(b, trial[b]);
+                if (delta < bestDelta) { bestDelta = delta; bestMove = { a, b, aNew: aSwap, bNew: bSwap }; }
+              }
+            }
+          }
+        }
+        if (!bestMove) break;
+        trial[bestMove.a] = bestMove.aNew;
+        trial[bestMove.b] = bestMove.bNew;
+      }
+      const total = trial.reduce((sum, l, ci) => sum + cost(ci, l), 0);
+      if (!best || miss.length < best.miss.length || (miss.length === best.miss.length && total < best.total)) {
+        best = { total, trial, miss };
+      }
     }
+    const cars = best.trial, unplaced = best.miss;
 
-    const orphanSet = new Set(orphans);
     const resultCars = base.map((c, ci) => {
       const r = route(c.driver, cars[ci]);
       const direct = dur[H][c.driver];
@@ -410,7 +434,7 @@
     });
     const reshuffled = [];
     resultCars.forEach(c => c.passengers.forEach(p => {
-      if (orphanSet.has(p)) reshuffled.push({ person: p, fromDriver: fromDriver.get(p), toDriver: c.driver });
+      if (fromDriver.get(p) !== c.driver) reshuffled.push({ person: p, fromDriver: fromDriver.get(p), toDriver: c.driver });
     }));
     const selfReturn = people.map((_, i) => i).filter(i => fromDriver.has(i) && !needsRide(i));
     return { cars: resultCars, reshuffled, unplaced, selfReturn };

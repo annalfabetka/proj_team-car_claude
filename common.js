@@ -190,7 +190,7 @@
     const carNo = new Map(result.cars.map((c, i) => [c.driver, i + 1]));
     const moved = new Map(back.reshuffled.map(r => [r.person, r]));
     let html = '<h3 class="back-title">Cesta zpět</h3>' +
-      '<p class="small" style="margin-top:0">Auta jsou stejná jako cestou tam a lidé se vracejí stejně. Přesouvají se jen ti, jejichž řidička zpět nikoho nebere. ' +
+      '<p class="small" style="margin-top:0">Auta jsou stejná jako cestou tam a lidé se vracejí stejně. Přesouvají se jen ti, pro které v autě zpět není místo, nebo kde změna výrazně zkrátí cestu (třeba když jedou na stejné místo). ' +
       'Směr řidičky je pro plán hlavní. Zda kvůli spolucestujícím zajede až k jejich adrese, je na domluvě s ní.</p>';
     lines.push('', '↩ Zpět:');
     back.cars.forEach(car => {

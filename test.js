@@ -256,8 +256,8 @@ test("planReturn: the driver's own destination shapes the route (drop-offs on th
   assert.strictEqual(Math.round(back.cars[0].directMin), 100);
   assert(back.cars[0].extraMin > 0 && back.cars[0].extraMin < 25, 'the extra time is reported: ' + back.cars[0].extraMin);
 });
-test('planReturn: the placement of re-seated people equals an exhaustive search', () => {
-  for (let seed = 1; seed <= 10; seed++) {
+test('planReturn: the result is the best one an exhaustive search finds (route times + the price of changing cars)', () => {
+  for (let seed = 1; seed <= 12; seed++) {
     const r = rng(seed);
     const pts = Array.from({ length: 8 }, () => pt(r() * 40, r() * 40)); // 0..6 people, 7 hall
     const people = [
@@ -265,25 +265,48 @@ test('planReturn: the placement of re-seated people equals an exhaustive search'
       { canDrive: false }, { canDrive: false }, { canDrive: false }, { canDrive: false },
     ];
     const outbound = { cars: [{ driver: 0, passengers: [3, 4, 5] }, { driver: 1, passengers: [6] }, { driver: 2, passengers: [] }] };
-    const opt = { stopMin: 1, maxDetour: 1e9, seed };
+    const original = new Map([[3, 0], [4, 0], [5, 0], [6, 1]]);
+    const opt = { stopMin: 1, maxDetour: 1e9, seed, reshufflePenalty: 8 };
     const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: opt });
-    const got = back.cars.reduce((sum, c) => sum + c.totalMin, 0);
     assert.deepStrictEqual(back.unplaced, []);
+    const moves = back.cars.reduce((n, c) => n + c.passengers.filter(p => original.get(p) !== c.driver).length, 0);
+    const got = back.cars.reduce((sum, c) => sum + c.totalMin, 0) + opt.reshufflePenalty * moves;
 
     const dur = euclid(pts), H = 7;
     const perms = a => a.length <= 1 ? [a] : a.flatMap((x, i) => perms(a.filter((_, j) => j !== i)).map(q => [x, ...q]));
     const cost = (d, list) => Math.min(...perms(list).map(ord => {
-      let t = 0, prev = H; for (const q of ord) { t += dur[prev][q] + opt.stopMin; prev = q; } return t + dur[prev][d];
+      let tt = 0, prev = H; for (const q of ord) { tt += dur[prev][q] + opt.stopMin; prev = q; } return tt + dur[prev][d];
     }));
     let best = Infinity;
-    for (let code = 0; code < 8; code++) { // each of the 3 orphans goes to car 1 or car 2
-      const l1 = [6], l2 = [];
-      [3, 4, 5].forEach((p, k) => ((code >> k) & 1 ? l1 : l2).push(p));
+    for (let code = 0; code < 16; code++) { // each of the 4 passengers goes to car 1 (seats 3) or car 2 (seats 4)
+      const l1 = [], l2 = [];
+      [3, 4, 5, 6].forEach((p, k) => ((code >> k) & 1 ? l1 : l2).push(p));
       if (l1.length > 2 || l2.length > 3) continue;
-      best = Math.min(best, cost(1, l1) + cost(2, l2) + cost(0, []));
+      const changed = l1.filter(p => original.get(p) !== 1).length + l2.filter(p => original.get(p) !== 2).length;
+      best = Math.min(best, cost(1, l1) + cost(2, l2) + cost(0, []) + opt.reshufflePenalty * changed);
     }
     assert(Math.abs(got - best) < 1e-6, `seed ${seed}: ${got.toFixed(2)} vs ${best.toFixed(2)}`);
   }
+});
+test('planReturn: two people going to the same place ride together when that saves more than a change costs', () => {
+  // the way home of the car of 1 and 2 leads far west; B drives east to where passenger 2 goes anyway
+  const pts = [pt(-60, 0), pt(40, 0), pt(41, 1), pt(42, 0), pt(0, 0)];     // 0 driver A (west), 1 driver B (east), 2 passenger, 3 passenger, hall
+  const people = [{ canDrive: true, seats: 4 }, { canDrive: true, seats: 4 }, { canDrive: false }, { canDrive: false }];
+  const outbound = { cars: [{ driver: 0, passengers: [2, 3] }, { driver: 1, passengers: [] }] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9 } });
+  assert.deepStrictEqual(back.cars.find(c => c.driver === 1).passengers.slice().sort(), [2, 3], 'both go east with B');
+  assert.deepStrictEqual(back.reshuffled.map(r => r.person).sort(), [2, 3]);
+  assert(back.reshuffled.every(r => r.fromDriver === 0 && r.toDriver === 1));
+});
+test('planReturn: people keep their car when a change would save less than it costs', () => {
+  // a small gain (a few minutes) is not worth moving anybody
+  const pts = [pt(0, 0), pt(1, 0), pt(10, 0), pt(10, 1), pt(11, 0), pt(20, 0)];
+  const people = [{ canDrive: true, seats: 4 }, { canDrive: true, seats: 4 }, { canDrive: false }, { canDrive: false }];
+  const outbound = { cars: [{ driver: 0, passengers: [2] }, { driver: 1, passengers: [3] }] };
+  const keep = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { reshufflePenalty: 1000 } });
+  assert.deepStrictEqual(keep.reshuffled, []);
+  const free = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { reshufflePenalty: 0 } });
+  assert(free.cars.reduce((s, c) => s + c.totalMin, 0) <= keep.cars.reduce((s, c) => s + c.totalMin, 0) + 1e-9, 'a free change is never worse');
 });
 test('planReturn: reports people who cannot be placed when there is not enough room', () => {
   const pts = [pt(0, 0), pt(5, 0), pt(-5, 0), pt(0, 5), pt(0, 0)];
