@@ -64,7 +64,7 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 
 **Aktualizace skriptu ve starší tabulce:** vložte novou verzi skriptu `Code.gs` (nahraďte celý starý kód) a uložte. Pak **hned spusťte funkci `migrate`** (v nabídce **Spolujízdy → Aktualizovat starší tabulku (nové řádky)**, po obnovení stránky, nebo v editoru skriptů výběrem funkce `migrate` a tlačítkem **Spustit**). Je to nutné i tehdy, když se rozložení tabulky nezměnilo: funkce se jmenovaly česky a spouštěč kontroly adres odkazoval na starý název, `migrate` ho přeinstaluje. Bez toho by se po úpravě adresy nic nekontrolovalo.
 
-Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), nastaví pravidla pro počet míst a smaže zbylé počty míst u spolucestujících. Jinak **nic nemaže**: hráčky, adresy a stavy zůstanou. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
+Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), nastaví pravidla pro počet míst, smaže zbylé počty míst u spolucestujících a doplní chybějící nadpisy sloupců (existující text nepřepisuje). Jinak **nic nemaže**: hráčky, adresy a stavy zůstanou. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
 
 **Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou. Pak nastavte datum nového zápasu.
 

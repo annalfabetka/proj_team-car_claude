@@ -287,6 +287,22 @@ test('migrate() applies the seat rules to an older sheet once, and tidies stale 
   assert.strictEqual(ruleCount(ORANGE), 1, 'no duplicate rules after repeated runs');
   assert.strictEqual(ruleCount(GREY), 1);
 });
+test('migrate() fills in missing column headings, keeps existing ones and leaves a complete header alone', () => {
+  cells = new Map();
+  cells.set(key(LINK_ROW, 1), 'Odkaz pro aplikaci'); cells.set(key(HALL_ROW, 1), 'Hala (adresa)');
+  cells.set(key(DATE_ROW, 1), 'Datum zápasu'); cells.set(key(TIME_ROW, 1), 'Čas příjezdu do haly');
+  cells.set(key(HEADER_ROW, 1), 'Jméno'); cells.set(key(HEADER_ROW, 4), 'Kapacita auta'); // renamed by hand
+  cells.set(key(row(0), 1), 'Anna');
+  sandbox.migrate();
+  const header = Array.from({ length: 8 }, (_, i) => get(HEADER_ROW, i + 1));
+  assert.deepStrictEqual(header, ['Jméno', 'Adresa', 'Stav', 'Kapacita auta', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']);
+  assert(calls.alerts[calls.alerts.length - 1].includes('Doplněny chybějící nadpisy'));
+  assert.strictEqual(get(row(0), 1), 'Anna', 'players must not be touched');
+  const before = new Map(cells);
+  sandbox.migrate();
+  assert.deepStrictEqual([...cells], [...before], 'a complete header is left alone');
+  assert(!calls.alerts[calls.alerts.length - 1].includes('Doplněny chybějící nadpisy'));
+});
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');
   uiAnswer = 'NO'; const before = new Map(cells);

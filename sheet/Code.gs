@@ -37,6 +37,7 @@ var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota
 var DRIVER_STATUSES = ['Určitě beru auto', 'Můžu vzít auto'];
 var NON_DRIVER_STATUSES = ['Potřebuji odvoz', 'Nejedu'];
 var STATUSES = DRIVER_STATUSES.concat(NON_DRIVER_STATUSES);
+var HEADER_LABELS = ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon'];
 
 // Result types that count as precise enough for a pickup (street + number / a specific place).
 var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
@@ -76,6 +77,23 @@ function installTrigger() {
     if (name === 'onEditCheck' || name === 'priUprave') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('onEditCheck').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+}
+
+/**
+ * Fills in column headings that are missing from the header row. Never overwrites existing text,
+ * so a heading renamed by hand stays as it is. Returns true when something was filled in.
+ */
+function ensureHeader(sh) {
+  var current = sh.getRange(HEADER_ROW, 1, 1, 8).getValues()[0];
+  var filled = false;
+  var labels = current.map(function (value, i) {
+    if (String(value).trim() !== '') return value;
+    filled = true;
+    return HEADER_LABELS[i];
+  });
+  if (!filled) return false;
+  sh.getRange(HEADER_ROW, 1, 1, 8).setValues([labels]).setFontWeight('bold').setBackground('#e8eaf0');
+  return true;
 }
 
 /* ---------- seat count: asked of drivers only ---------- */
@@ -175,8 +193,7 @@ function setup() {
   sh.getRange(TIME_ROW, COL.ADDR).setNumberFormat('@').setValue('18:30');
   sh.getRange(NOTE_ROW, COL.NAME).setValue(
     'Vyplňujte jen bílá pole. Sloupce E–H se doplní samy. Odkaz v prvním řádku vložte po zveřejnění tabulky (Soubor → Sdílet → Publikovat na webu → CSV).');
-  sh.getRange(HEADER_ROW, 1, 1, 8).setValues([[
-    'Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']]);
+  sh.getRange(HEADER_ROW, 1, 1, 8).setValues([HEADER_LABELS]);
 
   // appearance
   sh.getRange(LINK_ROW, COL.NAME, TIME_ROW, 1).setFontWeight('bold');
@@ -300,6 +317,7 @@ function migrate() {
   sh.setConditionalFormatRules(rules);
   sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
   var cleared = clearSeatsOfPassengers(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
+  var headerRestored = ensureHeader(sh);
 
   var msg = added.length
     ? 'Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
@@ -307,6 +325,7 @@ function migrate() {
     : 'Tabulka už má nové rozložení, nic se nepřidávalo.';
   msg += ' Pravidla pro počet míst (jen u řidiček) a spouštěč kontroly adres jsou aktualizované.';
   if (cleared) msg += ' Vymazán zbylý počet míst u spolucestujících: ' + cleared + '.';
+  if (headerRestored) msg += ' Doplněny chybějící nadpisy sloupců v řádku ' + HEADER_ROW + '.';
   ui.alert(msg);
 }
 
