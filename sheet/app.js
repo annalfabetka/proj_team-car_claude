@@ -111,13 +111,20 @@
       : '';
   }
 
+  // "Míst zpět": a number 1-9; 'ne' from the earlier yes/no version still means "takes nobody back" (= 1 seat)
+  function seatsBackOf(cell) {
+    const text = String(cell == null ? '' : cell).trim();
+    if (/^[1-9]$/.test(text)) return +text;
+    return plain(text) === 'ne' ? 1 : null;
+  }
+
   // Columns I-O: how the person gets home. Only meaningful when 'jinam' (somewhere else) is chosen.
   function sheetReturn(r) {
     const mode = plain(r[8]);
     const check = String(r[11] || '').trim();
     return {
       returnMode: mode === 'jinam' ? 'elsewhere' : mode.startsWith('odvoz zpet') ? 'self' : 'same',
-      takesReturn: plain(r[9]) !== 'ne',   // drivers: "Zpět vezmu spolucestující" = ne -> takes nobody back
+      seatsBack: seatsBackOf(r[9]),        // drivers: seats on the way back, driver included (null = as many as there)
       retAddress: String(r[10] || '').trim(), retCheck: check, retLabel: String(r[12] || '').trim(),
       retLat: cellNum(r[13]), retLon: cellNum(r[14]),
       retFail: check.startsWith('✗'), retWarn: check.startsWith('⚠'),
@@ -143,6 +150,9 @@
         status, seats: DRIVER(status) && seatsOk ? seatsText : '',
         seatsMissing: DRIVER(status) && !seatsOk,
       })));
+      const person = people[people.length - 1];
+      // seats on the way back: never more than the car has; null/absent = same as on the way there
+      person.returnSeats = DRIVER(status) && person.seatsBack != null ? Math.min(person.seatsBack, person.seats) : null;
     });
     const m = timeRow && /(\d{1,2})[:.](\d{2})/.exec(timeRow[1] || '');
     return {
@@ -159,7 +169,9 @@
     if (p.returnMode === 'elsewhere') {
       parts.push('jinam: ' + (p.retAddress || '(adresa chybí)') + (p.retLat == null ? ' ⚠ nenalezeno' : p.retWarn ? ' ⚠ ověřit' : ''));
     } else if (p.returnMode === 'self') parts.push('odvoz zpět nepotřebuje');
-    if (DRIVER(p.status) && p.takesReturn === false) parts.push('zpět nikoho nevezme');
+    if (DRIVER(p.status) && p.returnSeats != null && p.returnSeats < p.seats) {
+      parts.push(p.returnSeats <= 1 ? 'zpět nikoho nevezme' : `zpět max. ${p.returnSeats - 1} spolucestující`);
+    }
     return parts.join(' · ');
   }
 

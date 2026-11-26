@@ -19,7 +19,7 @@
  *   row 7+  players
  *
  * Columns I-O describe the trip back: I "Návrat" (same as there / somewhere else / no ride needed),
- * J "Zpět vezmu spolucestující" (drivers only), K the return address with its check in L-O.
+ * J "Míst zpět" (drivers only: seats on the way back), K the return address with its check in L-O.
  *
  * The planning app finds rows by the labels in the first column ("Hala...", "Datum...", "Čas...",
  * "Jméno"), so do not rename them.
@@ -37,16 +37,16 @@ var LAST_ROW = 200;
 var MAX_ROWS_PER_EDIT = 30;
 var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8,
   // the trip back
-  RETURN: 9, TAKES_BACK: 10, RET_ADDR: 11, RET_CHECK: 12, RET_FOUND: 13, RET_LAT: 14, RET_LON: 15 };
+  RETURN: 9, SEATS_BACK: 10, RET_ADDR: 11, RET_CHECK: 12, RET_FOUND: 13, RET_LAT: 14, RET_LON: 15 };
 var RETURN_MODES = ['Stejně jako tam', 'Jinam', 'Odvoz zpět nepotřebuji'];
 var RETURN_ELSEWHERE = 'Jinam';
-var TAKES_BACK_VALUES = ['ano', 'ne'];
+var LEGACY_TAKES_BACK_LABEL = 'Zpět vezmu spolucestující';   // the earlier yes/no version of column J
 var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
 var DRIVER_STATUSES = ['Určitě beru auto', 'Můžu vzít auto'];
 var NON_DRIVER_STATUSES = ['Potřebuji odvoz', 'Nejedu'];
 var STATUSES = DRIVER_STATUSES.concat(NON_DRIVER_STATUSES);
 var HEADER_LABELS = ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon',
-  'Návrat', 'Zpět vezmu spolucestující', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět'];
+  'Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět'];
 var LAST_COL = HEADER_LABELS.length;
 
 // Result types that count as precise enough for a pickup (street + number / a specific place).
@@ -161,19 +161,19 @@ function seatsRules(sh) {
 }
 
 /**
- * The seat count and "takes passengers back" only make sense for drivers: clears them for players whose
+ * The seat count and the seats on the way back only make sense for drivers: clears them for players whose
  * status says they are not driving. Returns how many players had something cleared.
  * Reads in one go (cell-by-cell reads are slow in Google Sheets).
  */
 function clearDriverOnlyFields(sh, fromRow, toRow) {
   if (toRow < fromRow) return 0;
-  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.TAKES_BACK - COL.STATUS + 1).getValues();
-  var seatsAt = COL.SEATS - COL.STATUS, takesAt = COL.TAKES_BACK - COL.STATUS, cleared = 0;
+  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.SEATS_BACK - COL.STATUS + 1).getValues();
+  var seatsAt = COL.SEATS - COL.STATUS, takesAt = COL.SEATS_BACK - COL.STATUS, cleared = 0;
   values.forEach(function (v, i) {
     if (NON_DRIVER_STATUSES.indexOf(String(v[0])) === -1) return;
     var any = false;
     if (String(v[seatsAt]) !== '') { sh.getRange(fromRow + i, COL.SEATS).clearContent(); any = true; }
-    if (String(v[takesAt]) !== '') { sh.getRange(fromRow + i, COL.TAKES_BACK).clearContent(); any = true; }
+    if (String(v[takesAt]) !== '') { sh.getRange(fromRow + i, COL.SEATS_BACK).clearContent(); any = true; }
     if (any) cleared++;
   });
   return cleared;
@@ -208,9 +208,20 @@ function returnModeValidation() {
       'Odvoz zpět nepotřebuji = domů se dostanete sami.').build();
 }
 
-function takesBackValidation() {
-  return SpreadsheetApp.newDataValidation().requireValueInList(TAKES_BACK_VALUES, true).setAllowInvalid(false)
-    .setHelpText('Jen pro řidičky: ano = cestou zpět vezmu spolucestující, ne = nikoho nevezmu.').build();
+/** Formula of the default for "Míst zpět": as many seats as on the way there (it follows when that number changes). */
+function seatsBackFormula(row) {
+  return '=IF(ISNUMBER(D' + row + '),D' + row + ',"")';
+}
+
+/** Seats on the way back, driver included: 1 .. seats there (9 when unknown). Drivers only, so typed values only. */
+function seatsBackValidation() {
+  var j = 'J' + FIRST_ROW, d = 'D' + FIRST_ROW;
+  return SpreadsheetApp.newDataValidation()
+    .requireFormulaSatisfied('=OR(' + j + '="",AND(' + driverCondition() + ',ISNUMBER(' + j + '),' + j + '=INT(' + j + '),' +
+      j + '>=1,' + j + '<=IF(ISNUMBER(' + d + '),' + d + ',9)))')
+    .setAllowInvalid(false)
+    .setHelpText('Jen pro řidičky: kolik míst bude v autě cestou zpět včetně řidičky (1 = nikoho nevezmu). ' +
+      'Výchozí je stejný počet jako tam.').build();
 }
 
 /** Colour rules for the return columns (all formula based, so reruns can recognise them). */
@@ -229,7 +240,8 @@ function returnRules(sh) {
     rule('=LEFT($L' + r + ',1)="✓"', COL.RET_CHECK, null, '#1a7f3c'),
     rule('=AND($I' + r + '="' + RETURN_ELSEWHERE + '",$K' + r + '="")', COL.RET_ADDR, '#ffe8b3', null), // "Jinam" without an address
     rule('=$I' + r + '<>"' + RETURN_ELSEWHERE + '"', COL.RET_ADDR, '#eceef2', null),                      // address not asked
-    rule('=NOT(' + driverCondition() + ')', COL.TAKES_BACK, '#eceef2', null),                              // only drivers are asked
+    rule('=NOT(' + driverCondition() + ')', COL.SEATS_BACK, '#eceef2', null),                              // only drivers are asked
+    rule('=AND(' + driverCondition() + ',ISNUMBER($J' + r + '),ISNUMBER($D' + r + '),$J' + r + '>$D' + r + ')', COL.SEATS_BACK, '#ffe8b3', null), // more seats back than there
   ];
 }
 
@@ -237,11 +249,11 @@ function returnRules(sh) {
 function applyReturnColumns(sh) {
   var rows = LAST_ROW - FIRST_ROW + 1;
   sh.getRange(FIRST_ROW, COL.RETURN, rows, 1).setDataValidation(returnModeValidation());
-  sh.getRange(FIRST_ROW, COL.TAKES_BACK, rows, 1).setDataValidation(takesBackValidation());
+  sh.getRange(FIRST_ROW, COL.SEATS_BACK, rows, 1).setDataValidation(seatsBackValidation());
   sh.getRange(FIRST_ROW, COL.RET_CHECK, rows, 4).setBackground('#f3f4f7');
   sh.getRange(FIRST_ROW, COL.RET_LAT, rows, 2).setNumberFormat('@').setFontColor('#8a93a5'); // coordinates as text
   sh.setColumnWidth(COL.RETURN, 170);
-  sh.setColumnWidth(COL.TAKES_BACK, 140);
+  sh.setColumnWidth(COL.SEATS_BACK, 100);
   sh.setColumnWidth(COL.RET_ADDR, 260);
   sh.setColumnWidth(COL.RET_CHECK, 220);
   sh.setColumnWidth(COL.RET_FOUND, 260);
@@ -272,18 +284,19 @@ function addMissingRules(sh, newRules) {
 
 /**
  * Defaults for the trip back, filled in as soon as a player row has content: "Stejně jako tam" for everybody
- * and "ano" (takes passengers back) for drivers. Only empty cells are filled, a choice is never overwritten.
+ * and, for drivers, "Míst zpět" = a formula that equals the seats on the way there (overwrite it with a number to
+ * offer fewer). Only empty cells are filled, a choice is never overwritten.
  */
 function fillReturnDefaults(sh, fromRow, toRow) {
   if (toRow < fromRow) return;
-  var values = sh.getRange(fromRow, COL.NAME, toRow - fromRow + 1, COL.TAKES_BACK - COL.NAME + 1).getValues();
+  var values = sh.getRange(fromRow, COL.NAME, toRow - fromRow + 1, COL.SEATS_BACK - COL.NAME + 1).getValues();
   values.forEach(function (v, i) {
     var row = fromRow + i;
     var hasContent = String(v[COL.NAME - 1]).trim() !== '' || String(v[COL.ADDR - 1]).trim() !== '';
     if (!hasContent) return;
     if (String(v[COL.RETURN - 1]) === '') sh.getRange(row, COL.RETURN).setValue(RETURN_MODES[0]);
     var drives = DRIVER_STATUSES.indexOf(String(v[COL.STATUS - 1])) !== -1;
-    if (drives && String(v[COL.TAKES_BACK - 1]) === '') sh.getRange(row, COL.TAKES_BACK).setValue(TAKES_BACK_VALUES[0]);
+    if (drives && String(v[COL.SEATS_BACK - 1]) === '') sh.getRange(row, COL.SEATS_BACK).setFormula(seatsBackFormula(row));
   });
 }
 
@@ -336,6 +349,25 @@ function applyReturnMode(sh, fromRow, toRow) {
   if (changed) sh.getRange(fromRow, COL.RET_ADDR, n, 5).setValues(block);
 }
 
+/**
+ * The earlier version had a yes/no question in column J. Turns the old answers into seats on the way back:
+ * "ano" -> the default formula, "ne" -> 1 (the driver only). Also renames the old heading.
+ * Returns how many answers were converted.
+ */
+function convertLegacyTakesBack(sh, fromRow, toRow) {
+  var heading = sh.getRange(HEADER_ROW, COL.SEATS_BACK);
+  if (String(heading.getValue()) === LEGACY_TAKES_BACK_LABEL) heading.setValue(HEADER_LABELS[COL.SEATS_BACK - 1]);
+  if (toRow < fromRow) return 0;
+  var values = sh.getRange(fromRow, COL.SEATS_BACK, toRow - fromRow + 1, 1).getValues();
+  var converted = 0;
+  values.forEach(function (v, i) {
+    var answer = String(v[0]).trim().toLowerCase(), row = fromRow + i;
+    if (answer === 'ano') { sh.getRange(row, COL.SEATS_BACK).setFormula(seatsBackFormula(row)); converted++; }
+    else if (answer === 'ne') { sh.getRange(row, COL.SEATS_BACK).setValue(1); converted++; }
+  });
+  return converted;
+}
+
 /** A new match starts with the defaults: everybody goes home the way they came, drivers take passengers back. */
 function resetReturnChoices(sh, fromRow, toRow) {
   if (toRow < fromRow) return;
@@ -345,7 +377,7 @@ function resetReturnChoices(sh, fromRow, toRow) {
     return [(String(v[0]).trim() !== '' || String(v[1]).trim() !== '') ? RETURN_MODES[0] : ''];
   });
   sh.getRange(fromRow, COL.RETURN, n, 1).setValues(modes);
-  sh.getRange(fromRow, COL.TAKES_BACK, n, 1).clearContent();   // the statuses are empty again, nobody is a driver yet
+  sh.getRange(fromRow, COL.SEATS_BACK, n, 1).clearContent();   // the statuses are empty again, nobody is a driver yet
   applyReturnMode(sh, fromRow, toRow);
 }
 
@@ -531,6 +563,7 @@ function migrate() {
   sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
   applyReturnColumns(sh);
   var cleared = clearDriverOnlyFields(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
+  convertLegacyTakesBack(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   fillReturnDefaults(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   applyReturnMode(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   var headerRestored = ensureHeader(sh);

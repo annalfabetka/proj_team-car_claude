@@ -13,7 +13,8 @@
  *   people   [{ name, canDrive, mustDrive, seats }]  (seats = seats including the driver)
  *            Optional, for the trip back (see planReturn):
  *              needsReturnRide  false = gets home on their own, takes no seat on the way back (default true)
- *              takesReturn      false = a driver who takes nobody on the way back (default true)
+ *              returnSeats      drivers: seats in the car on the way back, driver included (default: as many as
+ *                               on the way there; 1 = takes nobody back)
  *   options  { carPenalty, maxDetour, stopMin, restarts, seed }
  */
 (function (root, factory) {
@@ -53,6 +54,13 @@
   // Fallback when routing is unavailable: straight line x 1.35, average 45 km/h.
   function fallbackMatrix(points) {
     return points.map(a => points.map(b => (haversineKm(a, b) * 1.35 / 45) * 60));
+  }
+
+  // Passenger seats a driver offers on the way back: the seats on the way back (default: as many as on the
+  // way there, never more) minus the driver herself.
+  function returnCapacityOf(person) {
+    const back = person.returnSeats == null ? person.seats : person.returnSeats;
+    return Math.max(1, Math.min(back, person.seats)) - 1;
   }
 
   function permutations(arr) {
@@ -143,9 +151,9 @@
     // the cars stay at the hall, so the drivers chosen now are the only ones who can take people back:
     // their free seats on the way back must cover everybody who needs a ride home
     const needsRide = i => people[i].needsReturnRide !== false;
-    const returnSeats = d => (people[d].takesReturn === false ? 0 : people[d].seats - 1);
+    const returnCap = d => returnCapacityOf(people[d]);
     const returnShortfall = S => all.filter(i => !S.includes(i) && needsRide(i)).length -
-      S.reduce((sum, d) => sum + returnSeats(d), 0);
+      S.reduce((sum, d) => sum + returnCap(d), 0);
     const withReturn = feasible.filter(S => returnShortfall(S) <= 0);
     if (!withReturn.length) {
       return { error: 'NOT_ENOUGH_RETURN_SEATS', missing: Math.min(...feasible.map(returnShortfall)) };
@@ -157,9 +165,9 @@
     function optimize(S, rng) {
       const P = all.filter(i => !S.includes(i));
       const cap = S.map(d => people[d].seats - 1);
-      // a passenger in a car whose driver takes nobody back has to change cars later: small penalty
+      // passengers who will not fit into the car on the way back have to change cars later: small penalty each
       const cost = (c, list) => bestRoute(S[c], list).cost +
-        (people[S[c]].takesReturn === false ? o.reshufflePenalty * list.filter(needsRide).length : 0);
+        o.reshufflePenalty * Math.max(0, list.filter(needsRide).length - returnCap(S[c]));
       let best = null;
 
       for (let r = 0; r < o.restarts; r++) {
@@ -261,7 +269,7 @@
    *
    *   dur       matrix of driving times between the RETURN points: indices 0..n-1 are the places people go to
    *             (their own return address or home), index n is the hall
-   *   people    same array as for plan() (needsReturnRide / takesReturn / seats are read)
+   *   people    same array as for plan() (needsReturnRide / returnSeats / seats are read)
    *   outbound  the result of plan()
    *
    * Every car goes hall -> drop-offs -> the driver's own return point. The driver's route is the primary one:
@@ -271,8 +279,7 @@
     const o = Object.assign({}, DEFAULTS, options || {});
     const n = people.length, H = n;
     const needsRide = i => people[i].needsReturnRide !== false;
-    const takes = d => people[d].takesReturn !== false;
-    const capacity = d => people[d].seats - 1;
+    const capacity = d => returnCapacityOf(people[d]);
 
     const memo = new Map();
     function route(d, list) { // best drop-off order for driver d's car
@@ -309,13 +316,25 @@
       return r;
     }
 
-    // start from the outbound groups; only those whose driver takes nobody back have to be placed again
+    // start from the outbound groups. A car that takes back fewer people than it brought lets go of the ones
+    // who fit worst (the largest extra time for the driver); they are placed again below.
     const fromDriver = new Map();
     outbound.cars.forEach(c => c.passengers.forEach(p => fromDriver.set(p, c.driver)));
-    const base = outbound.cars.map(c => ({ driver: c.driver, pass: takes(c.driver) ? c.passengers.filter(needsRide) : [] }));
+    const base = outbound.cars.map(c => ({ driver: c.driver, pass: c.passengers.filter(needsRide) }));
     const orphans = [];
-    outbound.cars.forEach(c => c.passengers.forEach(p => { if (needsRide(p) && !takes(c.driver)) orphans.push(p); }));
-    const willing = base.map((_, i) => i).filter(i => takes(base[i].driver));
+    base.forEach(c => {
+      while (c.pass.length > capacity(c.driver)) {
+        const full = route(c.driver, c.pass).cost;
+        let worst = c.pass[0], gain = -Infinity;
+        c.pass.forEach(p => {
+          const g = full - route(c.driver, c.pass.filter(x => x !== p)).cost;
+          if (g > gain) { gain = g; worst = p; }
+        });
+        c.pass = c.pass.filter(x => x !== worst);
+        orphans.push(worst);
+      }
+    });
+    const willing = base.map((_, i) => i).filter(i => capacity(base[i].driver) > 0);
 
     let cars = base.map(c => c.pass.slice());
     let unplaced = [];

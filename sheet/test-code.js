@@ -361,16 +361,21 @@ const RET_RULES = () => {   // [formula, column]
   return [
     ['=LEFT($L' + r + ',1)="✗"', COL.RET_CHECK], ['=LEFT($L' + r + ',1)="⚠"', COL.RET_CHECK], ['=LEFT($L' + r + ',1)="✓"', COL.RET_CHECK],
     ['=AND($I' + r + '="Jinam",$K' + r + '="")', COL.RET_ADDR], ['=$I' + r + '<>"Jinam"', COL.RET_ADDR],
-    ['=NOT(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"))', COL.TAKES_BACK],
+    ['=NOT(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"))', COL.SEATS_BACK],
+    ['=AND(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"),ISNUMBER($J' + r + '),ISNUMBER($D' + r + '),$J' + r + '>$D' + r + ')', COL.SEATS_BACK],
   ];
 };
 test('trip back: setup() creates the headings, dropdowns and colour rules of columns I-O', () => {
   cells = new Map(); cfRules = []; validations.clear();
   sandbox.setup();
   assert.deepStrictEqual(Array.from({ length: 7 }, (_, i) => get(HEADER_ROW, COL.RETURN + i)),
-    ['Návrat', 'Zpět vezmu spolucestující', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět']);
+    ['Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět']);
   assert.deepStrictEqual(Array.from(validations.get(key(FIRST_ROW, COL.RETURN)).list), ['Stejně jako tam', 'Jinam', 'Odvoz zpět nepotřebuji']);
-  assert.deepStrictEqual(Array.from(validations.get(key(FIRST_ROW, COL.TAKES_BACK)).list), ['ano', 'ne']);
+  const sb = validations.get(key(FIRST_ROW, COL.SEATS_BACK));
+  assert(sb.formula.startsWith('=OR(J' + FIRST_ROW + '="",AND('), sb.formula);
+  assert(sb.formula.includes('"Určitě beru auto"') && !sb.formula.includes('Potřebuji odvoz'), 'drivers only');
+  assert(sb.formula.includes('>=1') && sb.formula.includes('INT(') && sb.formula.includes('<=IF(ISNUMBER(D' + FIRST_ROW + ')'), sb.formula);
+  assert(sb.help.includes('1 = nikoho nevezmu'), sb.help);
   RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'rule once: ' + f));
   assert.strictEqual(ruleCount(GREY), 2, 'the same grey formula is used for the seats and for "takes back" (two ranges)');
 });
@@ -394,6 +399,7 @@ test('trip back: typing the address first and choosing "Jinam" afterwards still 
   assert.strictEqual(get(r, COL.RET_CHECK), '✓ Adresa nalezena');
 });
 const returnCols = r => [COL.RET_ADDR, COL.RET_CHECK, COL.RET_FOUND, COL.RET_LAT, COL.RET_LON].map(c => get(r, c));
+const seatsBackDefault = r => '=IF(ISNUMBER(D' + r + '),D' + r + ',"")';
 const outboundCols = r => [COL.ADDR, COL.CHECK, COL.FOUND, COL.LAT, COL.LON].map(c => get(r, c));
 
 test('trip back defaults: a row with content gets "Stejně jako tam", and drivers also "ano"', () => {
@@ -402,18 +408,18 @@ test('trip back defaults: a row with content gets "Stejně jako tam", and driver
   const r = row(0);
   cells.set(key(r, COL.NAME), 'Anna'); edit(r, COL.NAME);
   assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam');
-  assert.strictEqual(get(r, COL.TAKES_BACK), '', 'a passenger-to-be is not asked yet');
+  assert.strictEqual(get(r, COL.SEATS_BACK), '', 'a passenger-to-be is not asked yet');
   cells.set(key(r, COL.STATUS), 'Můžu vzít auto'); edit(r, COL.STATUS);
-  assert.strictEqual(get(r, COL.TAKES_BACK), 'ano');
+  assert.strictEqual(get(r, COL.SEATS_BACK), seatsBackDefault(r), 'the default follows the seats there');
   const blank = row(1);
   cells.set(key(blank, COL.STATUS), 'Určitě beru auto'); edit(blank, COL.STATUS);   // no name, no address
   assert.strictEqual(get(blank, COL.RETURN), '', 'an empty row gets no defaults');
 });
 test('trip back defaults: a choice that was made is never overwritten', () => {
   const r = row(2);
-  cells.set(key(r, COL.NAME), 'Bára'); cells.set(key(r, COL.RETURN), 'Jinam'); cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  cells.set(key(r, COL.NAME), 'Bára'); cells.set(key(r, COL.RETURN), 'Jinam'); cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(key(r, COL.SEATS_BACK), 2);
   edit(r, COL.STATUS);
-  assert.strictEqual(get(r, COL.RETURN), 'Jinam'); assert.strictEqual(get(r, COL.TAKES_BACK), 'ne');
+  assert.strictEqual(get(r, COL.RETURN), 'Jinam'); assert.strictEqual(get(r, COL.SEATS_BACK), 2, 'an overridden number stays');
 });
 test('"Stejně jako tam": the return address, its check and coordinates are a copy of the outbound ones', () => {
   const r = row(3);
@@ -472,13 +478,13 @@ test('switching back to "Stejně jako tam" copies the outbound address again', (
 });
 test('newMatch brings the way home back to the defaults, but keeps the seat counts', () => {
   const r = row(0);
-  cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(seatsCell(r), 5); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(seatsCell(r), 5); cells.set(key(r, COL.SEATS_BACK), 2);
   cells.set(key(r, COL.ADDR), 'Vinohradská 12, Praha'); edit(r, COL.ADDR);
   cells.set(key(r, COL.RETURN), 'Jinam'); cells.set(key(r, COL.RET_ADDR), 'Chata'); edit(r, COL.RET_ADDR);
   sandbox.newMatch();
   assert.strictEqual(get(r, COL.STATUS), '');
   assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam', 'the exception of the last match is gone');
-  assert.strictEqual(get(r, COL.TAKES_BACK), '');
+  assert.strictEqual(get(r, COL.SEATS_BACK), '');
   assert.strictEqual(get(r, COL.SEATS), 5, 'the size of the car stays');
   assert.deepStrictEqual(returnCols(r), outboundCols(r), 'the return address is the outbound one again');
   assert.strictEqual(get(row(9), COL.RETURN), '', 'rows without content stay empty');
@@ -493,12 +499,12 @@ test('trip back: an address in a row that is not "Jinam" is not geocoded', () =>
 });
 test('trip back: a passenger status clears "takes passengers back" together with the seat count', () => {
   const r = row(3);
-  cells.set(key(r, COL.STATUS), 'Potřebuji odvoz'); cells.set(key(r, COL.SEATS), 4); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  cells.set(key(r, COL.STATUS), 'Potřebuji odvoz'); cells.set(key(r, COL.SEATS), 4); cells.set(key(r, COL.SEATS_BACK), 2);
   edit(r, COL.STATUS);
-  assert.strictEqual(get(r, COL.SEATS), ''); assert.strictEqual(get(r, COL.TAKES_BACK), '');
-  cells.set(key(r, COL.STATUS), 'Můžu vzít auto'); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  assert.strictEqual(get(r, COL.SEATS), ''); assert.strictEqual(get(r, COL.SEATS_BACK), '');
+  cells.set(key(r, COL.STATUS), 'Můžu vzít auto'); cells.set(key(r, COL.SEATS_BACK), 2);
   edit(r, COL.STATUS);
-  assert.strictEqual(get(r, COL.TAKES_BACK), 'ne', 'a driver keeps the answer');
+  assert.strictEqual(get(r, COL.SEATS_BACK), 2, 'a driver keeps the number');
 });
 test('trip back: the hall row and the rows above the players are not return rows', () => {
   const n = calls.geocode;
@@ -517,13 +523,13 @@ test('trip back: migrate() adds the return columns to a sheet without them, once
   cfRules = []; validations.clear();
   sandbox.migrate();
   assert.deepStrictEqual(Array.from({ length: 7 }, (_, i) => get(HEADER_ROW, COL.RETURN + i)),
-    ['Návrat', 'Zpět vezmu spolucestující', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět']);
+    ['Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět']);
   assert.deepStrictEqual(Array.from(validations.get(key(FIRST_ROW, COL.RETURN)).list), Array.from(RETURN_MODES));
   RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, f));
   assert.strictEqual(get(row(0), 1), 'Anna'); assert.strictEqual(get(row(0), COL.SEATS), 4);
   sandbox.migrate(); sandbox.migrate();
   RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'no duplicates after reruns: ' + f));
-  assert.strictEqual(ruleCount(GREY, COL.SEATS), 1); assert.strictEqual(ruleCount(GREY, COL.TAKES_BACK), 1);
+  assert.strictEqual(ruleCount(GREY, COL.SEATS), 1); assert.strictEqual(ruleCount(GREY, COL.SEATS_BACK), 1);
 });
 test('migrate() gives the existing players the trip-back defaults and fills in their return addresses', () => {
   cells = layoutCells([
@@ -534,11 +540,24 @@ test('migrate() gives the existing players the trip-back defaults and fills in t
     [key(row(2), COL.NAME), 'Cecílie'], [key(row(2), COL.RETURN), 'Jinam'], [key(row(2), COL.RET_ADDR), 'Chata 1'],   // an exception that exists already
   ]);
   sandbox.migrate();
-  assert.strictEqual(get(row(0), COL.RETURN), 'Stejně jako tam'); assert.strictEqual(get(row(0), COL.TAKES_BACK), 'ano');
+  assert.strictEqual(get(row(0), COL.RETURN), 'Stejně jako tam'); assert.strictEqual(get(row(0), COL.SEATS_BACK), seatsBackDefault(row(0)));
   assert.deepStrictEqual(returnCols(row(0)), outboundCols(row(0)), 'the return address copies the outbound one');
-  assert.strictEqual(get(row(1), COL.RETURN), 'Stejně jako tam'); assert.strictEqual(get(row(1), COL.TAKES_BACK), '', 'only drivers are asked');
+  assert.strictEqual(get(row(1), COL.RETURN), 'Stejně jako tam'); assert.strictEqual(get(row(1), COL.SEATS_BACK), '', 'only drivers are asked');
   assert.strictEqual(get(row(2), COL.RETURN), 'Jinam'); assert.strictEqual(get(row(2), COL.RET_ADDR), 'Chata 1', 'an existing exception is kept');
   assert.strictEqual(get(row(5), COL.RETURN), '', 'rows without content stay empty');
+});
+test('migrate() converts the old yes/no answers of column J into seats back and renames the heading', () => {
+  cells = layoutCells([
+    [key(HEADER_ROW, COL.SEATS_BACK), 'Zpět vezmu spolucestující'],
+    [key(row(0), COL.NAME), 'Anna'], [key(row(0), COL.STATUS), 'Určitě beru auto'], [seatsCell(row(0)), 4], [key(row(0), COL.SEATS_BACK), 'ano'],
+    [key(row(1), COL.NAME), 'Bára'], [key(row(1), COL.STATUS), 'Můžu vzít auto'], [seatsCell(row(1)), 4], [key(row(1), COL.SEATS_BACK), 'ne'],
+    [key(row(2), COL.NAME), 'Cecílie'], [key(row(2), COL.STATUS), 'Určitě beru auto'], [seatsCell(row(2)), 5], [key(row(2), COL.SEATS_BACK), 3],
+  ]);
+  sandbox.migrate();
+  assert.strictEqual(get(HEADER_ROW, COL.SEATS_BACK), 'Míst zpět', 'the old heading is renamed');
+  assert.strictEqual(get(row(0), COL.SEATS_BACK), seatsBackDefault(row(0)), '"ano" becomes the default (as many as there)');
+  assert.strictEqual(get(row(1), COL.SEATS_BACK), 1, '"ne" becomes 1: only the driver');
+  assert.strictEqual(get(row(2), COL.SEATS_BACK), 3, 'a number that is already there stays');
 });
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');
