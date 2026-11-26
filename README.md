@@ -89,6 +89,14 @@ Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek
 
 ---
 
+## Celková doba a odkazy na navigaci
+
+U každého auta (tam i zpět) je pod seznamem zastávek **celková doba cesty řidičky** (od výjezdu do příjezdu, včetně času na nastoupení) a odkazy:
+
+- **Trasa v Google Maps**: jeden odkaz s celou trasou (start, zastávky ve správném pořadí, cíl), který se na telefonu otevře v aplikaci a ukáže aktuální dopravu. Cestou tam vede z domova řidičky přes vyzvednutí do haly, cestou zpět od haly přes vysazení k adrese řidičky.
+- **Waze**: odkaz Waze umí jen jeden cíl, bez startu a zastávek, proto je u každé zastávky (vyzvednutí, vysazení, hala, cíl řidičky) malý odkaz „Waze“, který spustí navigaci právě tam.
+- Odkazy obsahují souřadnice adres, proto jsou jen na stránce a **nejsou ve zprávě do skupiny**.
+
 ## Jak plánovač rozhoduje
 
 - Minimalizuje součet dob jízdy všech aut. Každé další auto se počítá jako pokuta (výchozí 20 min), takže se bez důvodu nejezdí ve více autech. Hodnotu změníte v nastavení plánování.

@@ -85,3 +85,6 @@ a.btn.primary { background: var(--accent); color: var(--accent-text); border-col
   .readonly tr[data-id] td.back:empty { display: none; }
 }
 .info + .info { margin-top: 6px; }
+/* total time and navigation links of a car */
+.car-foot { margin: 8px 0 0; font-size: .9rem; }
+a.navlink { font-size: .8rem; margin-left: 4px; white-space: nowrap; }
