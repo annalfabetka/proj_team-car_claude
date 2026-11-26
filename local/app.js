@@ -85,7 +85,7 @@
         <td><input type="text" data-f="name" value="${esc(p.name)}" placeholder="Jméno" aria-label="Jméno" autocomplete="off"></td>
         <td><input type="text" data-f="address" value="${esc(p.address)}" placeholder="Ulice 12, Město" aria-label="Adresa" autocomplete="off"></td>
         <td data-geo>${geoHtml(p)}</td>
-        <td data-label="Míst v autě (s řidičkou)"><input type="number" data-f="seats" min="2" max="9" value="${p.seats}" ${DRIVER(p.status) ? '' : 'disabled'} aria-label="Míst v autě"></td>
+        <td data-label="Míst v autě (s řidičkou)"><input type="number" data-f="seats" min="2" max="9" value="${DRIVER(p.status) ? p.seats : ''}" ${DRIVER(p.status) ? '' : 'disabled'} aria-label="Míst v autě"></td>
         <td data-label="Stav"><select data-f="status" aria-label="Stav">${STATUS.map(([v, l]) =>
           `<option value="${v}" ${p.status === v ? 'selected' : ''}>${l}</option>`).join('')}
         </select></td>
@@ -118,7 +118,9 @@
       p.seats = Math.max(2, Math.min(9, parseInt(e.target.value, 10) || 4)); e.target.value = p.seats;
     } else if (f === 'status') {
       p.status = e.target.value;
-      tr.querySelector('[data-f="seats"]').disabled = !DRIVER(p.status);
+      const seats = tr.querySelector('[data-f="seats"]');
+      seats.disabled = !DRIVER(p.status);
+      seats.value = DRIVER(p.status) ? p.seats : ''; // passengers have no seat count; the number returns if they become drivers
     }
     save();
   });

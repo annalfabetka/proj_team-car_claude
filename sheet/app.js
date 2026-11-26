@@ -6,7 +6,7 @@
 (function () {
   'use strict';
 
-  const { $, esc, uid, STATUS, geoHtml, setupPlan } = Common;
+  const { $, esc, uid, STATUS, DRIVER, geoHtml, setupPlan } = Common;
   // Storage keys keep their original names so data saved by earlier versions is still found.
   const SHEET_KEY = 'spolujizdy.sheet';
   const SETTINGS_KEY = 'spolujizdy.tabulka.settings';
@@ -103,6 +103,14 @@
     return '';
   }
 
+  // a driver with no valid seat count in the sheet is planned with the default (4 seats)
+  function seatsWarning() {
+    const bad = state.people.filter(p => p.seatsMissing);
+    return bad.length
+      ? 'Chybí počet míst v autě u: ' + bad.map(p => (p.name || '').trim() || '(bez jména)').join(', ') + '. Počítá se se 4 místy.'
+      : '';
+  }
+
   function parseSheet(text) {
     const rows = parseCsv(text);
     const hallRow = rows.find(r => plain(r[0]).startsWith('hala'));
@@ -113,9 +121,14 @@
     const people = [];
     rows.slice(hdr + 1).forEach((r, i) => {
       if (!String(r[0] || '').trim() && !String(r[1] || '').trim()) return;
+      const status = SHEET_STATUS[plain(r[2])] || '';
+      // only drivers have a seat count; anything else in that column is ignored
+      const seatsText = String(r[3] || '').trim();
+      const seatsOk = /^\d+$/.test(seatsText) && +seatsText >= 2 && +seatsText <= 9;
       people.push(normPerson(Object.assign(sheetPlace(r), {
         id: 'r' + (hdr + 2 + i), name: String(r[0] || '').trim(),
-        status: SHEET_STATUS[plain(r[2])] || '', seats: r[3],
+        status, seats: DRIVER(status) && seatsOk ? seatsText : '',
+        seatsMissing: DRIVER(status) && !seatsOk,
       })));
     });
     const m = timeRow && /(\d{1,2})[:.](\d{2})/.exec(timeRow[1] || '');
@@ -133,7 +146,7 @@
         <td><input type="text" data-f="name" value="${esc(p.name)}" aria-label="Jméno" disabled></td>
         <td><input type="text" data-f="address" value="${esc(p.address)}" aria-label="Adresa" disabled></td>
         <td data-geo>${geoHtml(p)}</td>
-        <td data-label="Míst v autě (s řidičkou)"><input type="number" data-f="seats" value="${p.seats}" aria-label="Míst v autě" disabled></td>
+        <td data-label="Míst v autě (s řidičkou)"><input type="number" data-f="seats" value="${DRIVER(p.status) && !p.seatsMissing ? p.seats : ''}" aria-label="Míst v autě" disabled></td>
         <td data-label="Stav"><select data-f="status" aria-label="Stav" disabled>${STATUS.map(([v, l]) =>
           `<option value="${v}" ${p.status === v ? 'selected' : ''}>${l}</option>`).join('')}</select></td>
         <td></td>
@@ -259,7 +272,7 @@
   setupPlan({
     getState: () => state,
     hint: () => ' Podívejte se do sloupce „Kontrola adresy“ v tabulce.',
-    warnings: () => [dateWarning()].filter(Boolean),
+    warnings: () => [dateWarning(), seatsWarning()].filter(Boolean),
   });
 
   // ---------- start ----------

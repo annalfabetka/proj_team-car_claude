@@ -34,7 +34,9 @@ var LAST_ROW = 200;
 var MAX_ROWS_PER_EDIT = 30;
 var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8 };
 var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
-var STATUSES = ['Určitě beru auto', 'Můžu vzít auto', 'Potřebuji odvoz', 'Nejedu'];
+var DRIVER_STATUSES = ['Určitě beru auto', 'Můžu vzít auto'];
+var NON_DRIVER_STATUSES = ['Potřebuji odvoz', 'Nejedu'];
+var STATUSES = DRIVER_STATUSES.concat(NON_DRIVER_STATUSES);
 
 // Result types that count as precise enough for a pickup (street + number / a specific place).
 var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
@@ -74,6 +76,58 @@ function installTrigger() {
     if (name === 'onEditCheck' || name === 'priUprave') ScriptApp.deleteTrigger(t);
   });
   ScriptApp.newTrigger('onEditCheck').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+}
+
+/* ---------- seat count: asked of drivers only ---------- */
+
+/** Spreadsheet formula fragment: is the status in column C of the first player row a driver status? */
+function driverCondition() {
+  var c = '$C' + FIRST_ROW;
+  return 'OR(' + c + '="' + DRIVER_STATUSES[0] + '",' + c + '="' + DRIVER_STATUSES[1] + '")';
+}
+
+/** Seats may only be filled in for drivers (a whole number 2-9, driver included); otherwise the cell stays empty. */
+function seatsValidation() {
+  var d = 'D' + FIRST_ROW;
+  return SpreadsheetApp.newDataValidation()
+    .requireFormulaSatisfied('=OR(' + d + '="",AND(' + driverCondition() + ',ISNUMBER(' + d + '),' +
+      d + '>=2,' + d + '<=9,' + d + '=INT(' + d + ')))')
+    .setAllowInvalid(false)
+    .setHelpText('Počet míst se vyplňuje jen u řidiček (stav „Určitě beru auto“ nebo „Můžu vzít auto“): celé číslo 2–9 včetně řidičky.')
+    .build();
+}
+
+/** Colour rules: orange when a driver has no seat count, grey when the cell is not asked at all. */
+function seatsRules(sh) {
+  var range = [sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1)];
+  return [
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=AND(' + driverCondition() + ',NOT(ISNUMBER($D' + FIRST_ROW + ')))')
+      .setBackground('#ffe8b3').setRanges(range).build(),
+    SpreadsheetApp.newConditionalFormatRule()
+      .whenFormulaSatisfied('=NOT(' + driverCondition() + ')')
+      .setBackground('#eceef2').setRanges(range).build(),
+  ];
+}
+
+function hasFormulaRule(rules, formula) {
+  return rules.some(function (rule) {
+    var c = rule.getBooleanCondition();
+    return !!c && c.getCriteriaValues().indexOf(formula) !== -1;
+  });
+}
+
+/** Clears the seat count of players whose status says they are not driving. Returns how many were cleared. */
+function clearSeatsOfPassengers(sh, fromRow, toRow) {
+  var cleared = 0;
+  for (var row = fromRow; row <= toRow; row++) {
+    var status = String(sh.getRange(row, COL.STATUS).getValue());
+    if (NON_DRIVER_STATUSES.indexOf(status) !== -1 && String(sh.getRange(row, COL.SEATS).getValue()) !== '') {
+      sh.getRange(row, COL.SEATS).clearContent();
+      cleared++;
+    }
+  }
+  return cleared;
 }
 
 /** Colour rules for the date: yellow when missing, red when in the past (stale statuses). */
@@ -148,9 +202,7 @@ function setup() {
   var statusRule = SpreadsheetApp.newDataValidation().requireValueInList(STATUSES, true)
     .setAllowInvalid(false).setHelpText('Vyberte ze seznamu.').build();
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(statusRule);
-  var seatsRule = SpreadsheetApp.newDataValidation().requireNumberBetween(2, 9)
-    .setAllowInvalid(false).setHelpText('Počet míst v autě včetně řidičky (2–9).').build();
-  sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsRule);
+  sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
   var timeRule = SpreadsheetApp.newDataValidation()
     .requireFormulaSatisfied('=REGEXMATCH(TO_TEXT(B' + TIME_ROW + '),"^\\d{1,2}[:.]\\d{2}$")')
     .setAllowInvalid(false).setHelpText('Čas ve tvaru 18:30.').build();
@@ -159,8 +211,6 @@ function setup() {
   // colour warnings
   var checkRange = [sh.getRange(HALL_ROW, COL.CHECK, 1, 1),
     sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 1)];
-  var seatsRange = sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1);
-  var r = FIRST_ROW;
   sh.setConditionalFormatRules([
     SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith('✗')
       .setBackground('#f8d7da').setFontColor('#a4262c').setRanges(checkRange).build(),
@@ -168,10 +218,7 @@ function setup() {
       .setBackground('#ffe8b3').setFontColor('#7a4b00').setRanges(checkRange).build(),
     SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith('✓')
       .setFontColor('#1a7f3c').setRanges(checkRange).build(),
-    SpreadsheetApp.newConditionalFormatRule()
-      .whenFormulaSatisfied('=AND(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"),NOT(ISNUMBER($D' + r + ')))')
-      .setBackground('#ffe8b3').setRanges([seatsRange]).build(),
-  ].concat(dateRules(sh)));
+  ].concat(seatsRules(sh), dateRules(sh)));
 
   // protect labels, header and automatic columns from accidental edits (warning only)
   sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1).protect().setWarningOnly(true);
@@ -243,10 +290,24 @@ function migrate() {
     sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat(dateRules(sh)));
     added.push('řádek s datem zápasu');
   }
-  if (!added.length) { ui.alert('Tabulka už má nové rozložení, nic se neměnilo.'); return; }
-  sh.setFrozenRows(HEADER_ROW);
-  ui.alert('Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
-    (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.');
+  if (added.length) sh.setFrozenRows(HEADER_ROW);
+
+  // seat-count rules (validation + colours) and tidy-up of stale seat counts of passengers
+  var rules = sh.getConditionalFormatRules();
+  seatsRules(sh).forEach(function (rule) {
+    if (!hasFormulaRule(rules, rule.getBooleanCondition().getCriteriaValues()[0])) rules = rules.concat(rule);
+  });
+  sh.setConditionalFormatRules(rules);
+  sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
+  var cleared = clearSeatsOfPassengers(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
+
+  var msg = added.length
+    ? 'Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
+      (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.'
+    : 'Tabulka už má nové rozložení, nic se nepřidávalo.';
+  msg += ' Pravidla pro počet míst (jen u řidiček) a spouštěč kontroly adres jsou aktualizované.';
+  if (cleared) msg += ' Vymazán zbylý počet míst u spolucestujících: ' + cleared + '.';
+  ui.alert(msg);
 }
 
 /* ---------- check after an edit ---------- */
@@ -255,6 +316,10 @@ function onEditCheck(e) {
   if (!e || !e.range) return;
   var range = e.range, sh = range.getSheet();
   if (sh.getName() !== SHEET_NAME) return;
+  // a passenger / non-attending player has no seat count: clear it when the status changes
+  if (range.getColumn() <= COL.STATUS && range.getLastColumn() >= COL.STATUS) {
+    clearSeatsOfPassengers(sh, Math.max(range.getRow(), FIRST_ROW), Math.min(range.getLastRow(), LAST_ROW));
+  }
   if (range.getLastColumn() < COL.ADDR || range.getColumn() > COL.ADDR) return; // the address was not edited
   var done = 0;
   for (var row = range.getRow(); row <= range.getLastRow(); row++) {
