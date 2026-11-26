@@ -7,7 +7,7 @@ const assert = require('assert');
 // --- simulated sheet ---
 let cells = new Map();
 const key = (r, c) => r + ',' + c;
-const calls = { geocode: 0, alerts: [], frozen: null };
+const calls = { geocode: 0, alerts: [], toasts: [], frozen: null };
 let uiAnswer = 'YES';
 let triggers = [];
 let cfRules = [];
@@ -22,6 +22,7 @@ function makeRange(sheet, r, c, nr = 1, nc = 1) {
     getValues: () => Array.from({ length: nr }, (_, i) => Array.from({ length: nc }, (_, j) => cells.get(key(r + i, c + j)) ?? '')),
     setValue: v => { cells.set(key(r, c), v); return proxied; },
     setFormula: f => { cells.set(key(r, c), f); return proxied; },
+    clearDataValidations: () => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) validations.delete(key(r + i, c + j)); return proxied; },
     setDataValidation: v => { validations.set(key(r, c), v); return proxied; }, // stored under the top-left cell
     setValues: vs => { vs.forEach((row, i) => row.forEach((v, j) => cells.set(key(r + i, c + j), v))); return proxied; },
     clearContent: () => { for (let i = 0; i < nr; i++) for (let j = 0; j < nc; j++) cells.delete(key(r + i, c + j)); return proxied; },
@@ -55,7 +56,7 @@ const sheet = {
   },
 };
 ['setColumnWidth'].forEach(n => { sheet[n] = () => {}; });
-const ss = { getSheetByName: n => (n === 'Tým' ? sheet : null), getSheets: () => [sheet], insertSheet: () => sheet, toast() {} };
+const ss = { getSheetByName: n => (n === 'Tým' ? sheet : null), getSheets: () => [sheet], insertSheet: () => sheet, toast: m => { calls.toasts.push(m); } };
 
 // --- simulated geocoder ---
 const answers = {
@@ -226,6 +227,13 @@ test('migrate() replaces the trigger left by an older version (old handler name)
   sandbox.migrate();
   assert.deepStrictEqual(triggers.map(t => t.getHandlerFunction()).sort(), ['onEditCheck', 'somethingElse']);
 });
+// a sheet with the labels of the current layout (rows are recognised by them)
+function layoutCells(extra = []) {
+  return new Map([
+    [key(LINK_ROW, 1), 'Odkaz pro aplikaci'], [key(HALL_ROW, 1), 'Hala (adresa)'], [key(DATE_ROW, 1), 'Datum zápasu'],
+    [key(TIME_ROW, 1), 'Čas příjezdu do haly'], [key(HEADER_ROW, 1), 'Jméno'], ...extra,
+  ]);
+}
 const seatsCell = row => key(row, COL.SEATS);
 const ruleCount = formula => cfRules.filter(r => r.getBooleanCondition() && r.getBooleanCondition().getCriteriaValues()[0] === formula).length;
 const C = '$C' + FIRST_ROW, D = '$D' + FIRST_ROW;
@@ -256,7 +264,7 @@ test('choosing a passenger status clears a stale seat count; driver and empty st
   set(4, '', 4); assert.strictEqual(get(row(4), COL.SEATS), 4, 'an emptied status (new match) must keep the car size');
 });
 test('a multi-row status paste clears seats row by row, and only inside the player rows', () => {
-  cells = new Map();
+  cells = layoutCells();
   for (let k = 0; k < 3; k++) { cells.set(key(row(k), COL.STATUS), 'Potřebuji odvoz'); cells.set(seatsCell(row(k)), 4); }
   cells.set(seatsCell(HEADER_ROW), 'Míst v autě'); cells.set(key(HEADER_ROW, COL.STATUS), 'Nejedu');
   edit(HEADER_ROW, COL.STATUS, row(2) - HEADER_ROW + 1, 1); // the range starts on the header row
@@ -264,7 +272,7 @@ test('a multi-row status paste clears seats row by row, and only inside the play
   assert.strictEqual(get(HEADER_ROW, COL.SEATS), 'Míst v autě', 'the header must be left alone');
 });
 test('newMatch keeps the seat counts of drivers', () => {
-  cells = new Map([[key(row(0), COL.STATUS), 'Určitě beru auto'], [seatsCell(row(0)), 4]]);
+  cells = layoutCells([[key(row(0), COL.STATUS), 'Určitě beru auto'], [seatsCell(row(0)), 4]]);
   sandbox.newMatch();
   assert.strictEqual(get(row(0), COL.STATUS), ''); assert.strictEqual(get(row(0), COL.SEATS), 4);
 });
@@ -302,6 +310,45 @@ test('migrate() fills in missing column headings, keeps existing ones and leaves
   sandbox.migrate();
   assert.deepStrictEqual([...cells], [...before], 'a complete header is left alone');
   assert(!calls.alerts[calls.alerts.length - 1].includes('Doplněny chybějící nadpisy'));
+});
+test('layout guard: when the sheet does not match the script nothing is written', () => {
+  // the previous layout (no date row): the header is in row 5 and the first player in row 6
+  cells = new Map([
+    [key(1, 1), 'Odkaz pro aplikaci'], [key(2, 1), 'Hala (adresa)'], [key(3, 1), 'Čas příjezdu do haly'],
+    [key(5, 1), 'Jméno'], [key(5, 3), 'Stav'], [key(5, 4), 'Míst v autě'], [key(5, 5), 'Kontrola adresy'],
+    [key(6, 1), 'Anna'], [key(6, 2), 'Praha 1'], [key(6, 3), 'Nejedu'], [key(6, 4), 4],
+    [key(7, 1), 'Bára'], [key(7, 3), 'Potřebuji odvoz'],
+  ]);
+  const before = new Map(cells), n = calls.geocode, toasts = calls.toasts.length, alerts = calls.alerts.length;
+  edit(6, COL.STATUS); edit(6, COL.ADDR); edit(7, COL.STATUS);
+  assert.deepStrictEqual([...cells], [...before], 'an edit must not change anything');
+  assert.strictEqual(calls.geocode, n, 'no geocoding either');
+  assert(calls.toasts.length > toasts && calls.toasts[calls.toasts.length - 1].includes('migrate'));
+  sandbox.checkAll(); sandbox.newMatch();
+  assert.deepStrictEqual([...cells], [...before], 'menu actions must not change anything');
+  assert(calls.alerts.length === alerts + 2 && calls.alerts.every(a => typeof a === 'string'));
+  assert(calls.alerts[calls.alerts.length - 1].includes('migrate'));
+});
+test('migrate() repairs a damaged header: restores headings and removes dropdowns from it', () => {
+  cells = layoutCells([[key(HEADER_ROW, 2), 'Adresa']]);  // C..H of the header row are gone
+  validations.clear();
+  validations.set(key(HEADER_ROW, COL.STATUS), { formula: 'x' }); validations.set(key(HEADER_ROW, COL.SEATS), { formula: 'y' });
+  sandbox.migrate();
+  const header = Array.from({ length: 8 }, (_, i) => get(HEADER_ROW, i + 1));
+  assert.deepStrictEqual(header, ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']);
+  assert(!validations.has(key(HEADER_ROW, COL.STATUS)) && !validations.has(key(HEADER_ROW, COL.SEATS)), 'no dropdown on headings');
+  assert(validations.has(key(FIRST_ROW, COL.STATUS)), 'the status dropdown starts at the first player row');
+  assert(validations.has(key(FIRST_ROW, COL.SEATS)));
+  // once the layout matches again, the guarded functions work
+  sandbox.newMatch();
+  assert.strictEqual(get(HEADER_ROW, COL.STATUS), 'Stav', 'newMatch must never touch the header row');
+});
+test('the new-match reminder is worded correctly (no function name in a sentence)', () => {
+  cells = layoutCells();
+  sandbox.newMatch();
+  const msg = calls.alerts[calls.alerts.length - 1];
+  assert(msg.includes('nastavit nové datum'), msg);
+  assert(!msg.includes('setup'), msg);
 });
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');

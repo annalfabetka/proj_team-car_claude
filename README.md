@@ -73,6 +73,8 @@ Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek
 - **Zpoždění:** Google zveřejněnou tabulku obnovuje sám a změny se v aplikaci mohou objevit až za několik minut. Tlačítko **Obnovit** to neurychlí.
 - **Soukromí:** odkaz na zveřejněnou tabulku je veřejný, kdo ho zná, přečte všechny adresy. Je proto v adrese aplikace za `#` a **není v repozitáři**. Odkaz posílejte jen do týmové skupiny. Editační odkaz dává právo měnit data.
 - **Limity Google Map:** kontrola adres běží přes službu Mapy v Apps Scriptu a má denní limit (řádově tisíce adres). Pro tým to bohatě stačí, opakované adresy se navíc ukládají do cache.
+- **Spuštění funkce z editoru skriptů:** výsledek se zobrazí jako okno v **záložce s tabulkou**, ne v editoru. Dokud v tabulce neklepnete na **OK**, ukazuje editor „Execution started“ a vypadá to, že se nic neděje. Mějte proto tabulku otevřenou v druhé záložce a okno potvrďte.
+- **Ochrana proti rozbitému rozložení:** když se řádky v tabulce neshodují s tím, co skript čeká (např. po vložení nového skriptu do starší tabulky), skript **nic nezmění** a ohlásí to. Napraví to funkce `migrate`.
 - **Aplikace z tabulky jen čte.** Přidávat a upravovat se musí v tabulce.
 - **Sloupce E–H** se doplňují po úpravě adresy. Když se někdy nedoplní, použijte **Spolujízdy → Zkontrolovat všechny adresy**.
 - **Neověřeno na ostrém Googlu:** logika skriptu je otestovaná proti simulované tabulce a čtení tabulky proti simulovanému CSV. První spuštění na skutečné tabulce proto berte jako zkoušku.
