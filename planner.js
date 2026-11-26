@@ -12,9 +12,10 @@
  *            (in the same order as `people`), index n is the hall.
  *   people   [{ name, canDrive, mustDrive, seats }]  (seats = seats including the driver)
  *            Optional, a fixed agreement:
- *              ridesWith        index of the driver this person has agreed to ride with; she is put into that car
- *                               (and that driver always drives) whatever the algorithm would prefer, on the way
- *                               back too unless the car has no room for her
+ *              ridesWith        index of the driver this person has agreed to ride with on the way there; she is put
+ *                               into that car (and that driver always drives) whatever the algorithm would prefer
+ *              returnWith       the same for the way back; defaults to ridesWith ("the same as there"). On the way
+ *                               back an agreed person keeps her seat unless the car has no room for her
  *            Optional, for the trip back (see planReturn):
  *              needsReturnRide  false = gets home on their own, takes no seat on the way back (default true)
  *              returnSeats      drivers: seats in the car on the way back, driver included (default: as many as
@@ -106,20 +107,28 @@
     const H = n; // index of the hall
     const all = people.map((_, i) => i);
 
-    // People who agreed to ride with a particular driver: that driver must drive and the person is placed in her car
+    // People who agreed to ride with a particular driver: that driver must drive and the person is placed in her car.
+    // "ridesWith" is the agreement for the way there, "returnWith" the one for the way back (a person may have
+    // agreed to ride there with one driver and back with another).
     const pinned = all.filter(i => people[i].ridesWith != null && people[i].ridesWith !== i && !people[i].mustDrive);
     const pinnedSet = new Set(pinned);
-    for (const i of pinned) {
-      const d = people[i].ridesWith;
-      if (!people[d] || !people[d].canDrive || pinnedSet.has(d)) return { error: 'PINNED_NOT_DRIVER', person: i, driver: d };
-    }
+    const backPinned = all.filter(i => people[i].returnWith != null && people[i].returnWith !== i && !people[i].mustDrive);
+    const riders = new Set(pinned.concat(backPinned));            // agreed people ride, they do not drive
+    const checkTarget = (i, d) => !people[d] || !people[d].canDrive || riders.has(d);
+    for (const i of pinned) if (checkTarget(i, people[i].ridesWith)) return { error: 'PINNED_NOT_DRIVER', person: i, driver: people[i].ridesWith };
+    for (const i of backPinned) if (checkTarget(i, people[i].returnWith)) return { error: 'PINNED_NOT_DRIVER', person: i, driver: people[i].returnWith };
     const pinnedOf = d => pinned.filter(i => people[i].ridesWith === d);
     for (const d of new Set(pinned.map(i => people[i].ridesWith))) {
       const count = pinnedOf(d).length, capacity = people[d].seats - 1;
       if (count > capacity) return { error: 'PINNED_TOO_MANY', driver: d, count, capacity };
     }
-    const candidates = all.filter(i => people[i].canDrive && !pinnedSet.has(i)); // a pinned person rides, she does not drive
-    const must = all.filter(i => people[i].mustDrive || pinned.some(q => people[q].ridesWith === i));
+    for (const d of new Set(backPinned.filter(i => people[i].needsReturnRide !== false).map(i => people[i].returnWith))) {
+      const count = backPinned.filter(i => people[i].returnWith === d && people[i].needsReturnRide !== false).length;
+      const capacity = returnCapacityOf(people[d]);
+      if (count > capacity) return { error: 'PINNED_BACK_TOO_MANY', driver: d, count, capacity };
+    }
+    const candidates = all.filter(i => people[i].canDrive && !riders.has(i));
+    const must = all.filter(i => people[i].mustDrive || pinned.some(q => people[q].ridesWith === i) || backPinned.some(q => people[q].returnWith === i));
     if (!candidates.length) return { error: 'NO_DRIVERS' };
 
     // --- cost of one car (driver d + list of passengers) ---
@@ -194,6 +203,7 @@
     // --- optimise how passengers are split between cars for a fixed set of drivers ---
     function optimize(S, rng) {
       const P = all.filter(i => !S.includes(i) && !pinnedSet.has(i));   // pinned people are placed first and never moved
+      // (people agreed only for the way back are free on the way there)
       const cap = S.map(d => people[d].seats - 1);
       // passengers who will not fit into the car on the way back have to change cars later: small penalty each
       const cost = (c, list) => bestRoute(S[c], list).cost +
@@ -354,9 +364,17 @@
     // who fit worst (the largest extra time for the driver); they are placed again below.
     const fromDriver = new Map();
     outbound.cars.forEach(c => c.passengers.forEach(p => fromDriver.set(p, c.driver)));
-    const base = outbound.cars.map(c => ({ driver: c.driver, pass: c.passengers.filter(needsRide) }));
-    // people with a fixed agreement stay in their car on the way back unless it has no room for them
-    const agreed = new Set(people.map((_, i) => i).filter(i => people[i].ridesWith != null && fromDriver.get(i) === people[i].ridesWith));
+    // People with a fixed agreement ride back with the driver they agreed on: "returnWith", and when that is not
+    // given the driver of the way there ("ridesWith", i.e. the same car as there). They keep that seat unless the
+    // car has no room for them. Agreements naming somebody who does not drive are ignored.
+    const carIndex = new Map(outbound.cars.map((c, i) => [c.driver, i]));
+    const targetOf = i => (people[i].returnWith != null ? people[i].returnWith : people[i].ridesWith != null ? people[i].ridesWith : null);
+    const agreed = new Set(people.map((_, i) => i).filter(i => needsRide(i) && fromDriver.has(i) && targetOf(i) != null && carIndex.has(targetOf(i))));
+    const base = outbound.cars.map(c => ({
+      driver: c.driver,
+      pass: c.passengers.filter(p => needsRide(p) && (!agreed.has(p) || targetOf(p) === c.driver)),
+    }));
+    agreed.forEach(p => { if (targetOf(p) !== fromDriver.get(p)) base[carIndex.get(targetOf(p))].pass.push(p); });
     const released = new Set();
     const fixed = p => agreed.has(p) && !released.has(p);
     const orphans = [];

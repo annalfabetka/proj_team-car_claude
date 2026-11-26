@@ -20,8 +20,8 @@
  *
  * Columns I-O describe the trip back: I "Návrat" (same as there / somewhere else / no ride needed),
  * J "Míst zpět" (drivers only: seats on the way back), K the return address with its check in L-O.
- * Column P "Jedu s (pevně)" (passengers only): the driver she has agreed to ride with; the planner always
- * puts her into that car.
+ * Columns P "Tam s (pevně)" and Q "Zpět s (pevně)" (passengers only): the driver she has agreed to ride with on the
+ * way there / back; the planner always puts her into that car. Q empty = the same as there.
  *
  * The planning app finds rows by the labels in the first column ("Hala...", "Datum...", "Čas...",
  * "Jméno"), so do not rename them.
@@ -40,16 +40,17 @@ var MAX_ROWS_PER_EDIT = 30;
 var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8,
   // the trip back
   RETURN: 9, SEATS_BACK: 10, RET_ADDR: 11, RET_CHECK: 12, RET_FOUND: 13, RET_LAT: 14, RET_LON: 15,
-  RIDES_WITH: 16 };   // a passenger's fixed agreement: the driver she rides with
+  RIDES_WITH: 16, RETURN_WITH: 17 };   // a passenger's fixed agreements: the driver she rides with there / back
 var RETURN_MODES = ['Stejně jako tam', 'Jinam', 'Odvoz zpět nepotřebuji'];
 var RETURN_ELSEWHERE = 'Jinam';
+var LEGACY_RIDES_WITH_LABEL = 'Jedu s (pevně)';   // the first version of column P
 var LEGACY_TAKES_BACK_LABEL = 'Zpět vezmu spolucestující';   // the earlier yes/no version of column J
 var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
 var DRIVER_STATUSES = ['Určitě beru auto', 'Můžu vzít auto'];
 var NON_DRIVER_STATUSES = ['Potřebuji odvoz', 'Nejedu'];
 var STATUSES = DRIVER_STATUSES.concat(NON_DRIVER_STATUSES);
 var HEADER_LABELS = ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon',
-  'Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět', 'Jedu s (pevně)'];
+  'Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět', 'Tam s (pevně)', 'Zpět s (pevně)'];
 var LAST_COL = HEADER_LABELS.length;
 
 // Result types that count as precise enough for a pickup (street + number / a specific place).
@@ -195,14 +196,17 @@ function dateRules(sh) {
 }
 
 
-/* ---------- fixed agreement: "Jedu s (pevně)" (column P) ---------- */
+/* ---------- fixed agreements: "Tam s (pevně)" (P) and "Zpět s (pevně)" (Q) ---------- */
+
+var PIN_COLUMNS = [COL.RIDES_WITH, COL.RETURN_WITH];
+var COLUMN_LETTER = { 16: 'P', 17: 'Q' };
 
 /** Dropdown with the names of the players: the driver this passenger has agreed to ride with. */
-function ridesWithValidation(sh) {
+function ridesWithValidation(sh, helpText) {
   return SpreadsheetApp.newDataValidation()
     .requireValueInRange(sh.getRange(FIRST_ROW, COL.NAME, LAST_ROW - FIRST_ROW + 1, 1), true)
     .setAllowInvalid(false)
-    .setHelpText('Jen pro spolucestující: jméno řidičky, se kterou jste se domluvila. Plánovač vás do jejího auta zařadí vždy.')
+    .setHelpText(helpText)
     .build();
 }
 
@@ -213,32 +217,42 @@ function formulaRule(formula, ranges, background, font) {
   return b.build();
 }
 
-/** Colours: grey for drivers (they drive themselves), orange when the chosen name is no longer in the list. */
+/** Colours (both columns): grey for drivers (they drive themselves), orange when the name is no longer in the list. */
 function pinRules(sh) {
-  var range = [sh.getRange(FIRST_ROW, COL.RIDES_WITH, LAST_ROW - FIRST_ROW + 1, 1)];
   var r = FIRST_ROW, names = '$A$' + FIRST_ROW + ':$A$' + LAST_ROW;
-  return [
-    formulaRule('=' + driverCondition(), range, '#eceef2', null),
-    formulaRule('=AND($P' + r + '<>"",COUNTIF(' + names + ',$P' + r + ')=0)', range, '#ffe8b3', null),
-  ];
+  var rules = [];
+  PIN_COLUMNS.forEach(function (col) {
+    var range = [sh.getRange(FIRST_ROW, col, LAST_ROW - FIRST_ROW + 1, 1)];
+    var cell = '$' + COLUMN_LETTER[col] + r;
+    rules.push(formulaRule('=' + driverCondition(), range, '#eceef2', null));
+    rules.push(formulaRule('=AND(' + cell + '<>"",COUNTIF(' + names + ',' + cell + ')=0)', range, '#ffe8b3', null));
+  });
+  return rules;
 }
 
-/** Validation and width of the column. Safe to run repeatedly. */
+/** Validation and width of both columns. Safe to run repeatedly. */
 function applyPinColumn(sh) {
-  sh.getRange(FIRST_ROW, COL.RIDES_WITH, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(ridesWithValidation(sh));
+  var rows = LAST_ROW - FIRST_ROW + 1;
+  sh.getRange(FIRST_ROW, COL.RIDES_WITH, rows, 1).setDataValidation(ridesWithValidation(sh,
+    'Jen pro spolucestující: jméno řidičky, se kterou jste se domluvila na cestu tam. Plánovač vás do jejího auta zařadí vždy.'));
+  sh.getRange(FIRST_ROW, COL.RETURN_WITH, rows, 1).setDataValidation(ridesWithValidation(sh,
+    'Jen pro spolucestující: jméno řidičky, se kterou jste se domluvila na cestu zpět. Prázdné = stejně jako tam.'));
   sh.setColumnWidth(COL.RIDES_WITH, 170);
+  sh.setColumnWidth(COL.RETURN_WITH, 170);
 }
 
-/** A driver drives herself, so the "rides with" cell of players whose status says they drive is cleared. */
+/** A driver drives herself, so both "rides with" cells of players whose status says they drive are cleared. */
 function clearPinsOfDrivers(sh, fromRow, toRow) {
   if (toRow < fromRow) return 0;
-  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.RIDES_WITH - COL.STATUS + 1).getValues();
-  var statusAt = 0, pinAt = COL.RIDES_WITH - COL.STATUS, cleared = 0;
+  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.RETURN_WITH - COL.STATUS + 1).getValues();
+  var cleared = 0;
   values.forEach(function (v, i) {
-    if (DRIVER_STATUSES.indexOf(String(v[statusAt])) !== -1 && String(v[pinAt]) !== '') {
-      sh.getRange(fromRow + i, COL.RIDES_WITH).clearContent();
-      cleared++;
-    }
+    if (DRIVER_STATUSES.indexOf(String(v[0])) === -1) return;
+    var any = false;
+    PIN_COLUMNS.forEach(function (col) {
+      if (String(v[col - COL.STATUS]) !== '') { sh.getRange(fromRow + i, col).clearContent(); any = true; }
+    });
+    if (any) cleared++;
   });
   return cleared;
 }
@@ -406,6 +420,8 @@ function applyReturnMode(sh, fromRow, toRow) {
  * Returns how many answers were converted.
  */
 function convertLegacyTakesBack(sh, fromRow, toRow) {
+  var pinHeading = sh.getRange(HEADER_ROW, COL.RIDES_WITH);   // the first version of column P was called "Jedu s (pevně)"
+  if (String(pinHeading.getValue()) === LEGACY_RIDES_WITH_LABEL) pinHeading.setValue(HEADER_LABELS[COL.RIDES_WITH - 1]);
   var heading = sh.getRange(HEADER_ROW, COL.SEATS_BACK);
   if (String(heading.getValue()) === LEGACY_TAKES_BACK_LABEL) heading.setValue(HEADER_LABELS[COL.SEATS_BACK - 1]);
   if (toRow < fromRow) return 0;
@@ -420,7 +436,7 @@ function convertLegacyTakesBack(sh, fromRow, toRow) {
 }
 
 /** A new match starts with the defaults: everybody goes home the way they came, drivers take passengers back,
- *  and the fixed agreements "Jedu s" are gone. */
+ *  and the fixed agreements (P, Q) are gone. */
 function resetReturnChoices(sh, fromRow, toRow) {
   if (toRow < fromRow) return;
   var n = toRow - fromRow + 1;
@@ -430,7 +446,7 @@ function resetReturnChoices(sh, fromRow, toRow) {
   });
   sh.getRange(fromRow, COL.RETURN, n, 1).setValues(modes);
   sh.getRange(fromRow, COL.SEATS_BACK, n, 1).clearContent();   // the statuses are empty again, nobody is a driver yet
-  sh.getRange(fromRow, COL.RIDES_WITH, n, 1).clearContent();   // agreements "Jedu s" belong to one match
+  sh.getRange(fromRow, COL.RIDES_WITH, n, 2).clearContent();   // the agreements (P and Q) belong to one match
   applyReturnMode(sh, fromRow, toRow);
 }
 
@@ -575,7 +591,7 @@ function newMatch() {
   if (ui.alert('Vymazat stav všech hráček pro nový zápas?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).clearContent();
   resetReturnChoices(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW)); // the way home is chosen per match too
-  ui.alert('Stavy jsou vymazané a cesta zpět je vrácená na výchozí hodnoty (stejně jako tam). Dohody „Jedu s“ jsou smazané. ' +
+  ui.alert('Stavy jsou vymazané a cesta zpět je vrácená na výchozí hodnoty (stejně jako tam). Dohody „Tam s“ a „Zpět s“ jsou smazané. ' +
     'Nezapomeňte nastavit nové datum zápasu (řádek „Datum zápasu“).');
 }
 
@@ -628,7 +644,7 @@ function migrate() {
     ? 'Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
       (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.'
     : 'Tabulka už má nové rozložení, nic se nepřidávalo.';
-  msg += ' Pravidla pro počet míst (jen u řidiček), sloupce pro cestu zpět a „Jedu s“ a spouštěč kontroly adres jsou aktualizované.';
+  msg += ' Pravidla pro počet míst (jen u řidiček), sloupce pro cestu zpět a pevné dohody (P, Q) a spouštěč kontroly adres jsou aktualizované.';
   if (cleared) msg += ' Vymazán zbylý počet míst u spolucestujících: ' + cleared + '.';
   if (headerRestored) msg += ' Doplněny chybějící nadpisy sloupců v řádku ' + HEADER_ROW + '.';
   ui.alert(msg);

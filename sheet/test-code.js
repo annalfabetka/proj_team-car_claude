@@ -220,8 +220,7 @@ test('newMatch clears only the Status column', () => {
   assert.strictEqual(get(row(0), 3), ''); assert.strictEqual(get(row(0), 1), 'Anna'); assert.strictEqual(get(row(0), 4), 4);
   assert(calls.alerts[calls.alerts.length - 1].includes('datum'), 'it must remind to set a new date');
 });
-test('running setup() again keeps the link and asks before erasing data', () => {
-  test('setup() installs exactly one edit trigger under the new name', () => {
+test('setup() installs exactly one edit trigger under the new name', () => {
   triggers = [];
   cells = new Map();
   sandbox.setup(); sandbox.setup();
@@ -560,56 +559,85 @@ test('migrate() converts the old yes/no answers of column J into seats back and 
   assert.strictEqual(get(row(1), COL.SEATS_BACK), 1, '"ne" becomes 1: only the driver');
   assert.strictEqual(get(row(2), COL.SEATS_BACK), 3, 'a number that is already there stays');
 });
-const PIN_RULES = () => {   // [formula, column]
-  const r = FIRST_ROW;
-  return [
-    ['=OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto")', COL.RIDES_WITH],
-    ['=AND($P' + r + '<>"",COUNTIF($A$' + FIRST_ROW + ':$A$200,$P' + r + ')=0)', COL.RIDES_WITH],
-  ];
+const PIN_COLUMN_LETTER = { [COL.RIDES_WITH]: 'P', [COL.RETURN_WITH]: 'Q' };
+const PIN_RULES = () => {   // [formula, column], the same two rules for the way there (P) and the way back (Q)
+  const r = FIRST_ROW, out = [];
+  [COL.RIDES_WITH, COL.RETURN_WITH].forEach(col => {
+    const L = PIN_COLUMN_LETTER[col];
+    out.push(['=OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto")', col]);
+    out.push(['=AND($' + L + r + '<>"",COUNTIF($A$' + FIRST_ROW + ':$A$200,$' + L + r + ')=0)', col]);
+  });
+  return out;
 };
-test('fixed agreement: setup() creates column P with a dropdown of the players and its colour rules', () => {
+test('fixed agreements: setup() creates columns P and Q with a dropdown of the players and their colour rules', () => {
   cells = new Map(); cfRules = []; validations.clear();
   sandbox.setup();
   assert.strictEqual(COL.RIDES_WITH, 16);
-  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Jedu s (pevně)');
-  const v = validations.get(key(FIRST_ROW, COL.RIDES_WITH));
-  assert(v && v.range, 'a dropdown taken from a range');
-  assert.strictEqual(v.range.getA1Notation(), FIRST_ROW + ',' + COL.NAME + ',194,1', 'the names in column A');
-  assert(v.help.includes('Plánovač vás do jejího auta zařadí vždy'), v.help);
+  assert.strictEqual(COL.RETURN_WITH, 17);
+  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Tam s (pevně)');
+  assert.strictEqual(get(HEADER_ROW, COL.RETURN_WITH), 'Zpět s (pevně)');
+  [COL.RIDES_WITH, COL.RETURN_WITH].forEach(col => {
+    const v = validations.get(key(FIRST_ROW, col));
+    assert(v && v.range, 'a dropdown taken from a range');
+    assert.strictEqual(v.range.getA1Notation(), FIRST_ROW + ',' + COL.NAME + ',194,1', 'the names in column A');
+  });
+  assert(validations.get(key(FIRST_ROW, COL.RIDES_WITH)).help.includes('Plánovač vás do jejího auta zařadí vždy'));
+  assert(validations.get(key(FIRST_ROW, COL.RETURN_WITH)).help.includes('Prázdné = stejně jako tam'));
   PIN_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'rule once: ' + f));
 });
-test('fixed agreement: choosing a driver status clears the cell, a passenger keeps her agreement', () => {
+test('fixed agreements: choosing a driver status clears both cells, a passenger keeps her agreements', () => {
   const r1 = row(0), r2 = row(1);
-  cells.set(key(r1, COL.NAME), 'Klára'); cells.set(key(r1, COL.STATUS), 'Potřebuji odvoz'); cells.set(key(r1, COL.RIDES_WITH), 'Adéla');
+  cells.set(key(r1, COL.NAME), 'Klára'); cells.set(key(r1, COL.STATUS), 'Potřebuji odvoz');
+  cells.set(key(r1, COL.RIDES_WITH), 'Adéla'); cells.set(key(r1, COL.RETURN_WITH), 'Pája');
   edit(r1, COL.STATUS);
   assert.strictEqual(get(r1, COL.RIDES_WITH), 'Adéla', 'a passenger keeps it');
-  cells.set(key(r2, COL.NAME), 'Pája'); cells.set(key(r2, COL.STATUS), 'Můžu vzít auto'); cells.set(key(r2, COL.RIDES_WITH), 'Adéla');
+  assert.strictEqual(get(r1, COL.RETURN_WITH), 'Pája', 'a passenger keeps it (back)');
+  cells.set(key(r2, COL.NAME), 'Pája'); cells.set(key(r2, COL.STATUS), 'Můžu vzít auto');
+  cells.set(key(r2, COL.RIDES_WITH), 'Adéla'); cells.set(key(r2, COL.RETURN_WITH), 'Adéla');
   edit(r2, COL.STATUS);
   assert.strictEqual(get(r2, COL.RIDES_WITH), '', 'a driver drives herself, so there is nothing to agree');
+  assert.strictEqual(get(r2, COL.RETURN_WITH), '');
 });
-test('fixed agreement: a new match clears the agreements (they belong to one match)', () => {
+test('fixed agreements: a new match clears both (they belong to one match)', () => {
   const r = row(0);
   assert.strictEqual(get(r, COL.RIDES_WITH), 'Adéla');
+  assert.strictEqual(get(r, COL.RETURN_WITH), 'Pája');
   sandbox.newMatch();
   assert.strictEqual(get(r, COL.RIDES_WITH), '');
-  assert(calls.alerts[calls.alerts.length - 1].includes('Dohody „Jedu s“ jsou smazané'));
+  assert.strictEqual(get(r, COL.RETURN_WITH), '');
+  assert(calls.alerts[calls.alerts.length - 1].includes('Dohody „Tam s“ a „Zpět s“ jsou smazané'));
 });
-test('fixed agreement: migrate() adds column P to a sheet without it, once, and clears it for drivers', () => {
+test('fixed agreements: migrate() adds columns P and Q to a sheet without them, once, and clears them for drivers', () => {
   cells = layoutCells([
-    [key(HEADER_ROW, 2), 'Adresa'], [key(row(0), COL.NAME), 'Klára'], [key(row(0), COL.STATUS), 'Potřebuji odvoz'], [key(row(0), COL.RIDES_WITH), 'Adéla'],
-    [key(row(1), COL.NAME), 'Pája'], [key(row(1), COL.STATUS), 'Určitě beru auto'], [key(row(1), COL.RIDES_WITH), 'Adéla'],
+    [key(HEADER_ROW, 2), 'Adresa'], [key(row(0), COL.NAME), 'Klára'], [key(row(0), COL.STATUS), 'Potřebuji odvoz'],
+    [key(row(0), COL.RIDES_WITH), 'Adéla'], [key(row(0), COL.RETURN_WITH), 'Pája'],
+    [key(row(1), COL.NAME), 'Pája'], [key(row(1), COL.STATUS), 'Určitě beru auto'],
+    [key(row(1), COL.RIDES_WITH), 'Adéla'], [key(row(1), COL.RETURN_WITH), 'Adéla'],
   ]);
   cfRules = []; validations.clear();
   sandbox.migrate();
-  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Jedu s (pevně)');
+  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Tam s (pevně)');
+  assert.strictEqual(get(HEADER_ROW, COL.RETURN_WITH), 'Zpět s (pevně)');
   assert(validations.get(key(FIRST_ROW, COL.RIDES_WITH)).range, 'the dropdown is applied');
+  assert(validations.get(key(FIRST_ROW, COL.RETURN_WITH)).range, 'the dropdown is applied (back)');
   PIN_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, f));
   assert.strictEqual(get(row(0), COL.RIDES_WITH), 'Adéla', 'the passenger keeps hers');
+  assert.strictEqual(get(row(0), COL.RETURN_WITH), 'Pája');
   assert.strictEqual(get(row(1), COL.RIDES_WITH), '', 'the driver does not');
+  assert.strictEqual(get(row(1), COL.RETURN_WITH), '');
   sandbox.migrate(); sandbox.migrate();
   PIN_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'no duplicates: ' + f));
 });
+test('fixed agreements: migrate() renames the first version of the heading of column P', () => {
+  cells = layoutCells([[key(HEADER_ROW, 2), 'Adresa'], [key(HEADER_ROW, COL.RIDES_WITH), 'Jedu s (pevně)'],
+    [key(row(0), COL.NAME), 'Klára'], [key(row(0), COL.STATUS), 'Potřebuji odvoz'], [key(row(0), COL.RIDES_WITH), 'Adéla']]);
+  sandbox.migrate();
+  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Tam s (pevně)');
+  assert.strictEqual(get(HEADER_ROW, COL.RETURN_WITH), 'Zpět s (pevně)');
+  assert.strictEqual(get(row(0), COL.RIDES_WITH), 'Adéla', 'the agreement is kept');
+});
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
+test('running setup() again keeps the link and asks before erasing data', () => {
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');
   uiAnswer = 'NO'; const before = new Map(cells);
   sandbox.setup();
@@ -619,7 +647,6 @@ const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=
   assert.strictEqual(get(LINK_ROW, 2), link, 'the link must be kept');
   assert.strictEqual(get(row(0), 1), '', 'players are erased after confirmation');
 });
-const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
 test('migrate(): the oldest sheet (hall in row 1) gets a link row and a date row, data stays', () => {
   cells = new Map();
   // oldest format: 1 hall, 2 time, 3 note, 4 header, 5+ players
