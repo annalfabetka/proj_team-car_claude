@@ -23,6 +23,9 @@
   const DRIVER = s => s === 'must' || s === 'can';
   const ATTENDING = s => s === 'must' || s === 'can' || s === 'pass';
 
+  const TIMES_DISCLAIMER = 'Časy jsou jen orientační. Před odjezdem doporučujeme zkontrolovat aktuální dopravní situaci v Google Maps nebo Waze.';
+  const TIMES_DISCLAIMER_SHORT = 'Časy jsou orientační, před odjezdem zkontrolujte dopravu (Google Maps / Waze).';
+
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"']/g, c =>
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -112,6 +115,9 @@
     const lines = [`Zápas${state.dateText ? ' ' + state.dateText : ''} – sraz v hale ${state.arrive}${hallName ? ' (' + hallName + ')' : ''}`, ''];
     let html = `<p class="small" style="margin-top:0">${result.carCount} ${result.carCount === 1 ? 'auto' : result.carCount < 5 ? 'auta' : 'aut'}, celkem ${Math.round(result.totalDrivingMin)} minut jízdy${estimated ? ' (odhad)' : ''}.</p>`;
 
+    // the times come from typical driving times: remind everyone to check live traffic before leaving
+    html += `<p class="info">${esc(TIMES_DISCLAIMER)}</p>`;
+
     result.cars.forEach((car, i) => {
       const driver = attendees[car.driver];
       const depart = arrive - Math.ceil(car.totalMin);
@@ -132,6 +138,7 @@
       lines.push(`🚗 ${stops.map(s => s.msg).join(' → ')}`);
     });
 
+    lines.push('', TIMES_DISCLAIMER_SHORT);
     $('result').innerHTML = html;
     $('msg').value = lines.join('\n');
     $('resultSec').hidden = false;

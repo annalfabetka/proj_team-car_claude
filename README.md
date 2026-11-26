@@ -89,6 +89,8 @@ Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek
 - Pro 10–15 lidí a 3–5 aut je výsledek skoro okamžitý. Test porovnává plánovač s úplným průchodem všech možností na malých úlohách a výsledek je stejný. U velkých týmů nemusí být rozdělení do aut vždy přesně nejlepší možné.
 - Nezohledňuje spravedlivé střídání řidiček, dopravní špičky, cestu zpět ani osobní preference.
 
+Časy v plánu jsou **jen orientační** (typické doby jízdy bez aktuální dopravy). Aplikace to uvádí pod plánem a na konci zprávy do skupiny doporučuje před odjezdem zkontrolovat dopravu v Google Maps nebo Waze.
+
 Časy jízdy počítá veřejný server OSRM a adresy v lokální verzi hledá Nominatim. Obě služby jsou bez záruky dostupnosti. Když OSRM nefunguje, aplikace to oznámí a použije odhad vzdušnou čarou.
 
 ## Struktura repozitáře

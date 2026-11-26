@@ -76,3 +76,5 @@ a { color: var(--accent); }
 .tag { font-size: .7rem; font-weight: 600; vertical-align: middle; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; margin-left: 6px; white-space: nowrap; }
 a.btn { display: inline-block; text-decoration: none; font: inherit; border-radius: 8px; border: 1px solid var(--line); background: var(--card); color: var(--text); padding: 7px 12px; }
 a.btn.primary { background: var(--accent); color: var(--accent-text); border-color: var(--accent); font-weight: 600; }
+/* informational note inside the plan */
+.info { margin: 12px 0 0; padding: 8px 12px; border-left: 4px solid var(--accent); background: var(--bg); border-radius: 6px; font-size: .9rem; color: var(--muted); }
