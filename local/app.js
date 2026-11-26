@@ -15,7 +15,7 @@
       people: [],
       hall: { address: '', lat: null, lon: null, label: '', fail: false },
       arrive: '18:00',
-      settings: { carPenalty: 20, maxDetour: 20, stopMin: 2 },
+      settings: { carPenalty: 20, maxDetour: 20, maxDriverDetour: 25, stopMin: 2 },
     };
   }
   function merge(s) {
@@ -156,7 +156,7 @@
     state.hall.address = e.target.value; geocode(state.hall); save();
   });
   $('arrive').addEventListener('change', e => { state.arrive = e.target.value; save(); });
-  ['carPenalty', 'maxDetour', 'stopMin'].forEach(k => {
+  ['carPenalty', 'maxDetour', 'maxDriverDetour', 'stopMin'].forEach(k => {
     $(k).value = state.settings[k];
     $(k).addEventListener('change', e => {
       const v = parseFloat(e.target.value);

@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Spolujízdy – lokální verze</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
-<link rel="stylesheet" href="../style.css?v=20261126-1542">
+<link rel="stylesheet" href="../style.css?v=20261126-1607">
 </head>
 <body>
 <main>
@@ -50,6 +50,8 @@
           <input type="number" id="carPenalty" min="0" max="120"></label>
         <label class="f"><span>Nejdelší přijatelná zajížďka spolucestující (min)</span>
           <input type="number" id="maxDetour" min="0" max="120"></label>
+          <label class="f"><span>Nejdelší přijatelná zajížďka řidičky oproti přímé cestě (min)</span>
+          <input type="number" id="maxDriverDetour" min="0" max="240"></label>
         <label class="f"><span>Čas na nastoupení u každé spolucestující (min)</span>
           <input type="number" id="stopMin" min="0" max="15"></label>
       </div>
@@ -85,11 +87,11 @@
     </div>
     <p class="small">Adresy se pro nalezení souřadnic posílají na OpenStreetMap Nominatim a trasy počítá veřejný server OSRM. Nic dalšího se nikam neodesílá.</p>
   </section>
-  <p class="small" style="text-align:center;margin-top:24px">verze <!--version-->20261126-1542<!--/version--></p>
+  <p class="small" style="text-align:center;margin-top:24px">verze <!--version-->20261126-1607<!--/version--></p>
 </main>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-<script src="../planner.js?v=20261126-1542"></script>
-<script src="../common.js?v=20261126-1542"></script>
-<script src="app.js?v=20261126-1542"></script>
+<script src="../planner.js?v=20261126-1607"></script>
+<script src="../common.js?v=20261126-1607"></script>
+<script src="app.js?v=20261126-1607"></script>
 </body>
 </html>

@@ -26,6 +26,7 @@
   const DEFAULTS = {
     carPenalty: 20,  // how many minutes each additional car 'costs' (prefers fewer cars)
     maxDetour: 20,   // extra minutes over a direct ride that are still OK for a passenger
+    maxDriverDetour: 25, // extra minutes over her own direct drive that are still OK for a driver (soft limit)
     stopMin: 2,      // time to get in at each pickup
     restarts: 25,    // number of random starts of the local search
     reshufflePenalty: 8, // minutes: a passenger riding with a driver who takes nobody back must change cars on the way back
@@ -124,6 +125,9 @@
         const excess = ride - dur[p][H] - o.maxDetour;
         if (excess > 0) penalty += excess * DETOUR_PENALTY;
       });
+      // the driver's own detour: she should not be asked to drive far out of her way for the others
+      const driverExcess = total - dur[d][H] - o.maxDriverDetour;
+      if (driverExcess > 0) penalty += driverExcess * DETOUR_PENALTY;
       return { cost: total + penalty, total, order, times };
     }
     function bestRoute(d, pass) {
@@ -319,6 +323,8 @@
           const excess = ride[k] - dur[H][p] - o.maxDetour;
           if (excess > 0) penalty += excess * DETOUR_PENALTY;
         });
+        const driverExcess = total - dur[H][d] - o.maxDriverDetour;   // the driver's route is the primary one
+        if (driverExcess > 0) penalty += driverExcess * DETOUR_PENALTY;
         const cand = { cost: total + penalty, total, order: ord, ride };
         if (!r || cand.cost < r.cost) r = cand;
       }

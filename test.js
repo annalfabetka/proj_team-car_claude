@@ -53,7 +53,7 @@ test('matches an exhaustive search', () => {
       name: 'P' + i, canDrive: i < 3, seats: 3 + Math.floor(r() * 2),
     }));
     const dur = euclid(pts);
-    const opt = { carPenalty: 8, maxDetour: 1e9, stopMin: 1, seed };
+    const opt = { carPenalty: 8, maxDetour: 1e9, maxDriverDetour: 1e9, stopMin: 1, seed };
     const res = Planner.plan({ dur, people, options: opt });
     validate(res, people);
     const got = res.totalDrivingMin + opt.carPenalty * res.carCount;
@@ -197,8 +197,8 @@ test('return: passengers prefer a driver who also takes them back (the penalty h
     { canDrive: true, seats: 5, returnSeats: 1 }, { canDrive: true, seats: 4 },
     { canDrive: false }, { canDrive: false }, { canDrive: false },
   ];
-  const withPenalty = Planner.plan({ dur: euclid(pts), people, options: { reshufflePenalty: 100, carPenalty: 0, maxDetour: 1e9 } });
-  const without = Planner.plan({ dur: euclid(pts), people, options: { reshufflePenalty: 0, carPenalty: 0, maxDetour: 1e9 } });
+  const withPenalty = Planner.plan({ dur: euclid(pts), people, options: { reshufflePenalty: 100, carPenalty: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
+  const without = Planner.plan({ dur: euclid(pts), people, options: { reshufflePenalty: 0, carPenalty: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
   const carOf = (res, d) => res.cars.find(c => c.driver === d);
   assert.strictEqual(carOf(withPenalty, 0).passengers.length, 0, 'with the penalty nobody rides with A');
   assert.strictEqual(carOf(withPenalty, 1).passengers.length, 3);
@@ -251,7 +251,7 @@ test("planReturn: the driver's own destination shapes the route (drop-offs on th
   const pts = [pt(100, 0), pt(10, 0), pt(-10, 0), pt(0, 0)];
   const people = [{ canDrive: true, seats: 3 }, { canDrive: false }, { canDrive: false }];
   const outbound = { cars: [{ driver: 0, passengers: [1, 2] }] };
-  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9 } });
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
   assert.deepStrictEqual(back.cars[0].passengers, [2, 1], 'west first, then east (on the way to the cabin)');
   assert.strictEqual(Math.round(back.cars[0].directMin), 100);
   assert(back.cars[0].extraMin > 0 && back.cars[0].extraMin < 25, 'the extra time is reported: ' + back.cars[0].extraMin);
@@ -266,7 +266,7 @@ test('planReturn: the result is the best one an exhaustive search finds (route t
     ];
     const outbound = { cars: [{ driver: 0, passengers: [3, 4, 5] }, { driver: 1, passengers: [6] }, { driver: 2, passengers: [] }] };
     const original = new Map([[3, 0], [4, 0], [5, 0], [6, 1]]);
-    const opt = { stopMin: 1, maxDetour: 1e9, seed, reshufflePenalty: 8 };
+    const opt = { stopMin: 1, maxDetour: 1e9, maxDriverDetour: 1e9, seed, reshufflePenalty: 8 };
     const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: opt });
     assert.deepStrictEqual(back.unplaced, []);
     const moves = back.cars.reduce((n, c) => n + c.passengers.filter(p => original.get(p) !== c.driver).length, 0);
@@ -293,7 +293,7 @@ test('planReturn: two people going to the same place ride together when that sav
   const pts = [pt(-60, 0), pt(40, 0), pt(41, 1), pt(42, 0), pt(0, 0)];     // 0 driver A (west), 1 driver B (east), 2 passenger, 3 passenger, hall
   const people = [{ canDrive: true, seats: 4 }, { canDrive: true, seats: 4 }, { canDrive: false }, { canDrive: false }];
   const outbound = { cars: [{ driver: 0, passengers: [2, 3] }, { driver: 1, passengers: [] }] };
-  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9 } });
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
   assert.deepStrictEqual(back.cars.find(c => c.driver === 1).passengers.slice().sort(), [2, 3], 'both go east with B');
   assert.deepStrictEqual(back.reshuffled.map(r => r.person).sort(), [2, 3]);
   assert(back.reshuffled.every(r => r.fromDriver === 0 && r.toDriver === 1));
@@ -349,7 +349,7 @@ test('planReturn: a car with fewer seats back lets go of the passengers who fit 
   const pts = [pt(100, 0), pt(10, 0), pt(-40, 0), pt(-50, 0), pt(30, 0), pt(0, 0)];  // 0 driver, 1..3 passengers, 4 driver B, hall
   const people = [{ canDrive: true, seats: 4, returnSeats: 2 }, { canDrive: false }, { canDrive: false }, { canDrive: false }, { canDrive: true, seats: 4 }];
   const outbound = { cars: [{ driver: 0, passengers: [1, 2, 3] }, { driver: 4, passengers: [] }] };
-  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9 } });
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
   const a = back.cars.find(c => c.driver === 0), b = back.cars.find(c => c.driver === 4);
   assert.deepStrictEqual(a.passengers, [1], 'only the passenger on her way (east) stays');
   assert.deepStrictEqual(b.passengers.slice().sort(), [2, 3]);
@@ -364,5 +364,79 @@ test('planReturn: nobody has to move when the passengers fit into the seats back
   const back = Planner.planReturn({ dur: euclid(pts), people, outbound });
   assert.deepStrictEqual(back.cars[0].passengers.slice().sort(), [1, 2]);
   assert.deepStrictEqual(back.reshuffled, []);
+});
+test('driver detour: one driver is not asked to drive far out of her way when another arrangement costs a little more', () => {
+  // A lives in the west, the hall is in the east. B has a car and lives on the far side of A's detour.
+  // Without a limit A collects B (saves B's whole trip); with a limit B drives herself or rides with someone nearby.
+  const pts = [pt(0, 0), pt(0, 60), pt(40, 2), pt(100, 0)];                   // A (driver), B (can drive), C (passenger), hall
+  const people = [{ canDrive: true, mustDrive: true, seats: 4 }, { canDrive: true, seats: 4 }, { canDrive: false }];
+  const dur = euclid(pts);
+  const free = Planner.plan({ dur, people, options: { maxDriverDetour: 1e9, carPenalty: 20, maxDetour: 1e9 } });
+  const limited = Planner.plan({ dur, people, options: { maxDriverDetour: 25, carPenalty: 20, maxDetour: 1e9 } });
+  const detourOf = (res, d) => { const c = res.cars.find(x => x.driver === d); return c.totalMin - dur[d][3]; };
+  const worstFree = Math.max(...free.cars.map(c => c.totalMin - dur[c.driver][3]));
+  const worstLimited = Math.max(...limited.cars.map(c => c.totalMin - dur[c.driver][3]));
+  assert(worstLimited <= worstFree + 1e-9, 'the limit never makes the worst detour longer');
+  assert(worstLimited <= 25 + 1e-9 || worstLimited <= worstFree, 'the worst detour is within the limit when that is possible');
+});
+test('driver detour: the real-life case (a driver asked to collect three people, one of them with a car)', () => {
+  // Adél (Praha 6) first collected Pšenda, Klaara and Anička: 49 min direct, 85 min with them (+36).
+  // Anička has her own car and lives 29 min from the hall; Maru passes her on his way.
+  const names = ['Anička', 'Klaara', 'Lůca', 'Adél', 'Maru', 'Pája', 'Pšenda', 'Aneta', 'Mekáč', 'Test', 'Maru 2'];
+  const people = [
+    { canDrive: true, seats: 5 }, { canDrive: false }, { canDrive: true, mustDrive: true, seats: 2 }, { canDrive: true, mustDrive: true, seats: 4 },
+    { canDrive: true, mustDrive: true, seats: 5 }, { canDrive: true, mustDrive: true, seats: 4 }, { canDrive: false }, { canDrive: false },
+    { canDrive: true, mustDrive: true, seats: 4 }, { canDrive: false }, { canDrive: true, mustDrive: true, seats: 5 },
+  ];
+  // driving minutes (OSRM) between the homes and the hall for the relevant people; the rest follows the geometry roughly
+  const home = [[50.12727, 14.490641], [50.074908, 14.418652], [50.133719, 14.139422], [50.091081, 14.320517], [50.376673, 15.884652],
+    [50.183458, 15.017547], [50.074629, 14.260298], [50.054602, 14.527751], [50.030606, 14.521004], [50.054602, 14.527751], [50.129021, 14.570137]];
+  const hall = [50.420422, 14.245438];
+  const km = (a, b) => Planner.haversineKm({ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] });
+  const pts = home.concat([hall]);
+  const dur = pts.map(a => pts.map(b => km(a, b) * 1.35 / 45 * 60));
+  const detours = res => res.cars.map(c => c.totalMin - dur[c.driver][11]);
+  const free = Planner.plan({ dur, people, options: { maxDriverDetour: 1e9 } });
+  const limited = Planner.plan({ dur, people });                                  // the default limit
+  assert(Math.max(...detours(limited)) <= Math.max(...detours(free)) + 1e-9, 'the default never makes the worst detour longer');
+  assert(!limited.error);
+});
+// Real driving times (minutes, from a routing service) for 11 people and the hall; labelled A..K, no names or addresses.
+// A: can drive (5 seats), lives 29 min from the hall. D: must drive (4), lives 49 min away. E: must drive (5), 110 min away.
+const REAL = [
+    [0.0, 15.3, 39.3, 22.1, 84.1, 43.8, 27.0, 17.5, 24.1, 17.5, 10.9, 29.0],
+    [17.1, 0.0, 32.8, 15.5, 93.9, 53.7, 20.5, 16.1, 15.2, 16.1, 22.7, 42.3],
+    [41.9, 35.3, 0.0, 21.9, 122.1, 81.8, 19.5, 44.7, 43.6, 44.7, 49.7, 48.8],
+    [23.9, 18.2, 22.1, 0.0, 104.8, 64.6, 10.3, 31.1, 29.9, 31.1, 31.7, 49.1],
+    [85.8, 95.0, 122.0, 105.5, 0.0, 67.7, 110.4, 86.3, 92.9, 86.3, 80.4, 110.1],
+    [44.4, 53.6, 80.6, 64.1, 67.5, 0.0, 69.0, 45.0, 51.5, 45.0, 39.0, 68.8],
+    [29.1, 22.5, 19.5, 10.9, 110.1, 69.8, 0.0, 33.1, 32.0, 33.1, 36.9, 53.0],
+    [18.3, 16.1, 43.2, 29.6, 84.3, 44.0, 32.5, 0.0, 9.2, 0.0, 18.0, 42.6],
+    [25.5, 14.2, 41.4, 27.7, 91.1, 50.8, 30.6, 9.3, 0.0, 9.3, 25.3, 49.9],
+    [18.3, 16.1, 43.2, 29.6, 84.3, 44.0, 32.5, 0.0, 9.2, 0.0, 18.0, 42.6],
+    [11.4, 22.8, 48.3, 31.1, 79.8, 39.6, 36.0, 19.1, 25.6, 19.1, 0.0, 35.8],
+    [30.4, 41.1, 48.2, 47.8, 108.8, 68.6, 52.8, 42.3, 48.8, 42.3, 35.7, 0.0]
+];
+test('driver detour (real data): a driver is not sent on a 36 minute detour to carry someone who has her own car', () => {
+  const n = 11;
+  const people = Array.from({ length: n }, (_, i) => ({
+    canDrive: [0, 2, 3, 4, 5, 8, 10].includes(i), mustDrive: [2, 3, 4, 5, 8, 10].includes(i),
+    seats: [5, 0, 2, 4, 5, 4, 0, 0, 4, 0, 5][i] || 4,
+  }));
+  const detours = res => res.cars.map(c => ({ driver: c.driver, extra: c.totalMin - REAL[c.driver][n], passengers: c.passengers }));
+  // without the limit (the earlier behaviour) D collects three people, A among them, and drives 36 min out of her way
+  const before = Planner.plan({ dur: REAL, people, options: { maxDriverDetour: 1e9 } });
+  const carD = detours(before).find(c => c.driver === 3);
+  assert(carD.passengers.includes(0) && carD.extra > 30, 'the situation to avoid: ' + JSON.stringify(carD));
+  // with the default limit nobody is sent far out of her way and A does not ride with D
+  const after = Planner.plan({ dur: REAL, people });
+  const all = detours(after);
+  assert(all.every(c => c.extra <= 25 + 1e-9), 'every detour within the limit: ' + JSON.stringify(all.map(c => Math.round(c.extra))));
+  assert(!all.find(c => c.driver === 3).passengers.includes(0), 'A is no longer collected by D');
+  const total = r => r.totalDrivingMin;
+  assert(total(after) - total(before) < 10, 'and it costs only a few minutes of driving in total');
+});
+test('driver detour: the setting is part of the defaults and can be switched off', () => {
+  assert.strictEqual(Planner.DEFAULTS.maxDriverDetour, 25);
 });
 console.log(`\nAll ${passed} tests passed.`);

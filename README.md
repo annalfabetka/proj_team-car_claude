@@ -100,6 +100,7 @@ U každého auta (tam i zpět) je pod seznamem zastávek **celková doba cesty �
 
 - Minimalizuje součet dob jízdy všech aut. Každé další auto se počítá jako pokuta (výchozí 20 min), takže se bez důvodu nejezdí ve více autech. Hodnotu změníte v nastavení plánování.
 - Hlídá zajížďku: spolucestující by neměla v autě strávit o víc než 20 minut (nastavitelné) navíc oproti přímé cestě. Je to měkký limit. Když to jinak nejde, plánovač ho překročí.
+- **Hlídá i zajížďku řidičky:** řidička by neměla jet o víc než 25 minut (nastavitelné) déle, než by jela přímo do haly, kvůli tomu, aby svezla ostatní. Bez toho plánovač minimalizuje jen celkový počet minut a aut, takže jedné řidičce může naložit velkou zajížďku, aby ušetřil jiné auto (třeba aby svezla i hráčku, která má vlastní auto a bydlí blízko haly). Díky limitu se zátěž rozloží a hráčka s „Můžu vzít auto“ jede raději s někým, kdo ji míjí. Celkem to stojí jen pár minut jízdy navíc. Je to měkký limit: když to jinak nejde, plánovač ho překročí. Stejný limit platí i pro cestu zpět (od haly přes vysazení k adrese řidičky).
 - Počítá s časem na nastoupení u každé vyzvednuté hráčky (výchozí 2 min).
 - Pro 10–15 lidí a 3–5 aut je výsledek skoro okamžitý. Test porovnává plánovač s úplným průchodem všech možností na malých úlohách a výsledek je stejný. U velkých týmů nemusí být rozdělení do aut vždy přesně nejlepší možné.
 - Nezohledňuje spravedlivé střídání řidiček, dopravní špičky, cestu zpět ani osobní preference.

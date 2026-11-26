@@ -42,7 +42,7 @@
     arrive: '18:00',
     date: null,        // match Date (local midnight) or null
     dateText: '',      // e.g. 'středa 2. 12. 2026'
-    settings: { carPenalty: 20, maxDetour: 20, stopMin: 2 },
+    settings: { carPenalty: 20, maxDetour: 20, maxDriverDetour: 25, stopMin: 2 },
   };
   try { Object.assign(state.settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch (e) { /* ignore */ }
 
@@ -295,7 +295,7 @@
   }
 
   // ---------- planning settings (this device only) ----------
-  ['carPenalty', 'maxDetour', 'stopMin'].forEach(k => {
+  ['carPenalty', 'maxDetour', 'maxDriverDetour', 'stopMin'].forEach(k => {
     $(k).value = state.settings[k];
     $(k).addEventListener('change', e => {
       const v = parseFloat(e.target.value);
