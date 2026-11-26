@@ -1,4 +1,4 @@
-// Spuštění: node spolujizdy/test.js
+// Run: node test.js
 const assert = require('assert');
 const Planner = require('./planner.js');
 
@@ -13,24 +13,24 @@ function validate(res, people) {
   const n = people.length;
   const seen = new Set();
   for (const c of res.cars) {
-    assert(people[c.driver].canDrive, 'řidička musí mít auto');
-    assert(c.passengers.length + 1 <= people[c.driver].seats, 'překročena kapacita');
+    assert(people[c.driver].canDrive, 'a driver must have a car');
+    assert(c.passengers.length + 1 <= people[c.driver].seats, 'capacity exceeded');
     for (const x of [c.driver, ...c.passengers]) {
       assert(!seen.has(x), 'osoba ve dvou autech'); seen.add(x);
     }
   }
-  assert.strictEqual(seen.size, n, 'někdo zůstal bez místa');
+  assert.strictEqual(seen.size, n, 'someone was left without a seat');
 }
 
 let passed = 0;
 function test(name, fn) { fn(); passed++; console.log('  ok  ' + name); }
 
-// 1) Dvě skupiny na opačných stranách haly se rozdělí do dvou aut podle bydliště.
-test('rozdělí lidi podle oblasti', () => {
+// 1) Two groups on opposite sides of the hall are split into two cars by where they live.
+test('splits people by area', () => {
   const pts = [
-    { x: -10, y: 0 }, { x: -11, y: 1 }, { x: -9, y: -1 },   // 0 (řidička), 1, 2 – západ
-    { x: 10, y: 0 }, { x: 11, y: 1 }, { x: 9, y: -1 },      // 3 (řidička), 4, 5 – východ
-    { x: 0, y: 0 },                                         // hala
+    { x: -10, y: 0 }, { x: -11, y: 1 }, { x: -9, y: -1 },   // 0 (driver), 1, 2 - west
+    { x: 10, y: 0 }, { x: 11, y: 1 }, { x: 9, y: -1 },      // 3 (driver), 4, 5 - east
+    { x: 0, y: 0 },                                         // hall
   ];
   const people = pts.slice(0, 6).map((_, i) => ({
     name: 'P' + i, canDrive: i === 0 || i === 3, seats: 4,
@@ -43,8 +43,8 @@ test('rozdělí lidi podle oblasti', () => {
   assert.deepStrictEqual(east.passengers.slice().sort(), [4, 5]);
 });
 
-// 2) Heuristika dává stejné optimum jako úplný průchod (malé instance).
-test('shoduje se s úplným průchodem', () => {
+// 2) The heuristic finds the same optimum as an exhaustive search (small instances).
+test('matches an exhaustive search', () => {
   for (let seed = 1; seed <= 15; seed++) {
     const r = rng(seed);
     const n = 6;
@@ -58,7 +58,7 @@ test('shoduje se s úplným průchodem', () => {
     validate(res, people);
     const got = res.totalDrivingMin + opt.carPenalty * res.carCount;
 
-    // úplný průchod: každá podmnožina řidiček × každé přiřazení × každé pořadí
+    // exhaustive search: every subset of drivers x every assignment x every order
     const H = n;
     function carCost(d, order) {
       let t = 0, prev = d;
@@ -85,12 +85,12 @@ test('shoduje se s úplným průchodem', () => {
         if (cost < best) best = cost;
       }
     }
-    assert(Math.abs(got - best) < 1e-6, `seed ${seed}: plán ${got.toFixed(2)} vs optimum ${best.toFixed(2)}`);
+    assert(Math.abs(got - best) < 1e-6, `seed ${seed}: plan ${got.toFixed(2)} vs optimum ${best.toFixed(2)}`);
   }
 });
 
-// 3) Realistická velikost: 15 lidí, 5 aut na výběr – rychle a platně.
-test('15 lidí, 5 řidiček – rychlé a platné', () => {
+// 3) Realistic size: 15 people, 5 cars to choose from - fast and valid.
+test('15 people, 5 drivers - fast and valid', () => {
   const r = rng(42);
   const n = 15;
   const pts = Array.from({ length: n + 1 }, () => ({ x: r() * 30, y: r() * 30 }));
@@ -101,13 +101,13 @@ test('15 lidí, 5 řidiček – rychlé a platné', () => {
   const res = Planner.plan({ dur: euclid(pts), people, options: {} });
   const ms = Date.now() - t0;
   validate(res, people);
-  assert(res.carCount >= 4, 'při 15 lidech a 4 místech nutně aspoň 4 auta');
+  assert(res.carCount >= 4, 'with 15 people and 4 seats per car at least 4 cars are needed');
   assert(ms < 5000, `trvalo ${ms} ms`);
-  console.log(`      (${res.carCount} auta, ${res.totalDrivingMin.toFixed(0)} min celkem, ${ms} ms)`);
+  console.log(`      (${res.carCount} cars, ${res.totalDrivingMin.toFixed(0)} min in total, ${ms} ms)`);
 });
 
-// 4) „Musí řídit“ a chybové stavy.
-test('respektuje „musí řídit“', () => {
+// 4) 'Must drive' and error states.
+test("respects 'must drive'", () => {
   const pts = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }, { x: 3, y: 0 }, { x: 50, y: 50 }];
   const people = [
     { name: 'A', canDrive: true, mustDrive: false, seats: 4 },
@@ -118,7 +118,7 @@ test('respektuje „musí řídit“', () => {
   validate(res, people);
   assert(res.cars.some(c => c.driver === 1));
 });
-test('chyby: žádné auto / málo míst', () => {
+test('errors: no car / not enough seats', () => {
   const pts = [{ x: 0, y: 0 }, { x: 1, y: 0 }, { x: 2, y: 0 }];
   const dur = euclid(pts);
   assert.strictEqual(Planner.plan({ dur, people: [{ canDrive: false }, { canDrive: false }] }).error, 'NO_DRIVERS');
@@ -129,8 +129,8 @@ test('chyby: žádné auto / málo míst', () => {
   assert.strictEqual(r.missing, 1);
 });
 
-// 5) Zajížďka: limit zabrání obrovskému objíždění jednoho člověka.
-test('časová osa je konzistentní', () => {
+// 5) Timeline: pickup times add up consistently.
+test('timeline is consistent', () => {
   const pts = [{ x: 0, y: 0 }, { x: 5, y: 0 }, { x: 10, y: 0 }, { x: 20, y: 0 }];
   const people = [{ canDrive: true, seats: 4 }, { canDrive: false }, { canDrive: false }];
   const res = Planner.plan({ dur: euclid(pts), people, options: { stopMin: 2 } });
@@ -141,4 +141,4 @@ test('časová osa je konzistentní', () => {
   assert.strictEqual(c.totalMin, 5 + 2 + 5 + 2 + 10);
 });
 
-console.log(`\nVšech ${passed} testů prošlo.`);
+console.log(`\nAll ${passed} tests passed.`);

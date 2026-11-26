@@ -1,11 +1,11 @@
 /*
- * Společný kód obou verzí aplikace (lokální a Google tabulka):
- * stavy hráček, výpočet tras (OSRM), plán, mapa a zpráva do skupiny.
+ * Code shared by both app versions (local and Google Sheet):
+ * player statuses, route calculation (OSRM), the plan, the map and the group message.
  *
- * Verze si předají stav přes setupPlan({ getState, hint }):
+ * Each version passes its state in through setupPlan({ getState, hint, warnings }):
  *   getState() -> { people, hall, arrive, settings }
- *   hint()     -> doplňující věta k chybě „chybí adresa“ (např. odkaz do tabulky)
- *   warnings() -> pole upozornění zobrazených před plánem (např. staré datum zápasu)
+ *   hint()     -> extra sentence for the 'address missing' error (e.g. a pointer to the sheet)
+ *   warnings() -> array of notices shown before the plan (e.g. a past match date)
  */
 (function (root) {
   'use strict';
@@ -33,7 +33,7 @@
     return String(Math.floor(m / 60)).padStart(2, '0') + ':' + String(m % 60).padStart(2, '0');
   };
 
-  // stav hledání adresy u hráčky nebo haly
+  // address lookup status of a player or the hall
   function geoHtml(t) {
     if (t.pending) return '<span class="geo wait">hledám…</span>';
     if (t.warn) return `<span class="geo bad" title="${esc(t.check || t.label || '')}">⚠ ${t.lat != null ? 'zkontrolovat' : 'upřesnit'}</span>`;
@@ -42,7 +42,7 @@
     return '<span class="geo wait">–</span>';
   }
 
-  // ---------- trasy ----------
+  // ---------- routes ----------
   async function osrmMatrix(points) {
     const coords = points.map(p => `${p.lon},${p.lat}`).join(';');
     const res = await fetch(`${OSRM}/table/v1/driving/${coords}?annotations=duration`);
@@ -64,7 +64,7 @@
     $('notices').appendChild(d);
   }
 
-  // ---------- plán ----------
+  // ---------- plan ----------
   function setupPlan(cfg) {
     const getState = cfg.getState, hint = () => (cfg.hint ? cfg.hint() : '');
 
@@ -139,7 +139,7 @@
     await renderMap(state, result, attendees);
   }
 
-  // ---------- mapa ----------
+  // ---------- map ----------
   let map = null, mapLayer = null;
   async function renderMap(state, result, attendees) {
     if (typeof L === 'undefined') { $('map').hidden = true; return; }

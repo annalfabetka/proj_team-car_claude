@@ -1,19 +1,20 @@
 /*
- * Prototyp s Google tabulkou: aplikace z tabulky jen čte.
- * Hráčky vyplňují tabulku (kontrolu adres dělá skript Kod.gs), tady se plánuje.
- * Odkaz na zveřejněnou tabulku je v adrese za # (ne v repozitáři).
+ * Google Sheet prototype: the app only reads from the sheet.
+ * Players fill in the sheet (the Code.gs script validates addresses), planning happens here.
+ * The link to the published sheet lives in the URL after # (not in the repository).
  */
 (function () {
   'use strict';
 
   const { $, esc, uid, STATUS, geoHtml, setupPlan } = Common;
+  // Storage keys keep their original names so data saved by earlier versions is still found.
   const SHEET_KEY = 'spolujizdy.sheet';
   const SETTINGS_KEY = 'spolujizdy.tabulka.settings';
-  const SHEET_REF_RE = /^[A-Za-z0-9_-]{20,}\.\d{1,12}$/;   // <id zveřejnění>.<gid listu>
+  const SHEET_REF_RE = /^[A-Za-z0-9_-]{20,}\.\d{1,12}$/;   // <publish id>.<gid of the sheet>
   const EDIT_ID_RE = /^[A-Za-z0-9_-]{20,}$/;
   const POLL_MS = 30000;
 
-  // ---------- odkaz na tabulku: z adresy, jinak z paměti prohlížeče ----------
+  // ---------- link to the sheet: from the URL, otherwise from browser storage ----------
   const sheetHash = (ref, edit) => '#s=' + ref + (edit ? '&e=' + edit : '');
   function readSheet() {
     const hs = /[#&]s=([A-Za-z0-9_.-]+)/.exec(location.hash);
@@ -29,21 +30,21 @@
           history.replaceState(null, '', sheetHash(ref, edit));
         }
       }
-    } catch (e) { /* ignoruj */ }
+    } catch (e) { /* ignore */ }
     return ref ? { ref, edit } : null;
   }
   const sheetRef = readSheet();
 
-  // ---------- stav (jen v paměti; ukládá se pouze osobní nastavení plánování) ----------
+  // ---------- state (memory only; only the personal planning settings are stored) ----------
   const state = {
     people: [],
     hall: { address: '', lat: null, lon: null, label: '', fail: false },
     arrive: '18:00',
-    date: null,        // Date zápasu (půlnoc místního času) nebo null
-    dateText: '',      // např. „středa 2. 12. 2026“
+    date: null,        // match Date (local midnight) or null
+    dateText: '',      // e.g. 'středa 2. 12. 2026'
     settings: { carPenalty: 20, maxDetour: 20, stopMin: 2 },
   };
-  try { Object.assign(state.settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch (e) { /* ignoruj */ }
+  try { Object.assign(state.settings, JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}')); } catch (e) { /* ignore */ }
 
   function normPerson(raw) {
     const p = Object.assign({ id: uid(), name: '', address: '', lat: null, lon: null, label: '', fail: false, seats: 4, status: '' }, raw);
@@ -51,7 +52,7 @@
     return p;
   }
 
-  // ---------- tabulka: načtení a převod ----------
+  // ---------- sheet: loading and parsing ----------
   function parseCsv(text) {
     const rows = [];
     let row = [], cur = '', quoted = false;
@@ -74,14 +75,14 @@
   const cellNum = s => { const v = parseFloat(String(s).replace(',', '.')); return isFinite(v) ? v : null; };
   const SHEET_STATUS = { 'urcite beru auto': 'must', 'muzu vzit auto': 'can', 'potrebuji odvoz': 'pass', 'nejedu': 'no' };
 
-  function sheetPlace(r) { // adresa, kontrola a souřadnice z jednoho řádku (sloupce B, E–H)
+  function sheetPlace(r) { // address, check and coordinates from one row (columns B, E-H)
     const check = String(r[4] || '').trim();
     return {
       address: String(r[1] || '').trim(), check, label: String(r[5] || '').trim(),
       lat: cellNum(r[6]), lon: cellNum(r[7]), fail: check.startsWith('✗'), warn: check.startsWith('⚠'),
     };
   }
-  // Datum z publikovaného CSV: „2. 12. 2026“ (formát nastavuje skript), pro jistotu i 2026-12-02 a 12/2/2026.
+  // Date from the published CSV: '2. 12. 2026' (the script sets the format); 2026-12-02 and 12/2/2026 are accepted too, to be safe.
   function parseDate(txt) {
     const s = String(txt || '').trim();
     let m, y, mo, d;
@@ -94,7 +95,7 @@
   }
   const WEEKDAYS = ['neděle', 'pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota'];
   const formatDate = dt => `${WEEKDAYS[dt.getDay()]} ${dt.getDate()}. ${dt.getMonth() + 1}. ${dt.getFullYear()}`;
-  // upozornění na chybějící nebo staré datum: právě tak poznáte, že stavy v tabulce jsou ze starého zápasu
+  // warning about a missing or past date: this is how you can tell the statuses in the sheet belong to an old match
   function dateWarning() {
     if (!state.date) return 'Datum zápasu není vyplněné v tabulce, nejde poznat, ke kterému zápasu stavy patří.';
     const today = new Date(); today.setHours(0, 0, 0, 0);
@@ -125,7 +126,7 @@
     };
   }
 
-  // ---------- zobrazení ----------
+  // ---------- rendering ----------
   function renderRoster() {
     $('roster').innerHTML = state.people.map(p => `
       <tr data-id="${esc(p.id)}">
@@ -160,7 +161,7 @@
     if (sig !== lastSig) { lastSig = sig; renderRoster(); }
   }
 
-  // poslední úspěšné načtení: "25. 11. 2026 14:32:05"
+  // last successful load: "25. 11. 2026 14:32:05"
   let lastLoaded = null;
   const fmtStamp = d => `${d.getDate()}. ${d.getMonth() + 1}. ${d.getFullYear()} ` +
     [d.getHours(), d.getMinutes(), d.getSeconds()].map(n => String(n).padStart(2, '0')).join(':');
@@ -190,7 +191,7 @@
     fetching = false;
   }
 
-  // ---------- panel: připojení a informace o tabulce ----------
+  // ---------- panel: connecting and sheet info ----------
   function connectSheet() {
     const pubUrl = $('sheetPub').value, editUrl = $('sheetEdit').value;
     const pub = /spreadsheets\/d\/e\/([A-Za-z0-9_-]+)\/pub/.exec(pubUrl);
@@ -200,7 +201,7 @@
     const ref = pub[1] + '.' + (gid ? gid[1] : '0');
     if (!SHEET_REF_RE.test(ref)) { $('sheetErr').textContent = 'Odkaz se nepodařilo přečíst.'; return; }
     const edit = ed && EDIT_ID_RE.test(ed[1]) ? ed[1] : null;
-    try { localStorage.setItem(SHEET_KEY, JSON.stringify({ ref, edit })); } catch (e) { /* ignoruj */ }
+    try { localStorage.setItem(SHEET_KEY, JSON.stringify({ ref, edit })); } catch (e) { /* ignore */ }
     location.hash = sheetHash(ref, edit);
     location.reload();
   }
@@ -240,18 +241,18 @@
     $('reloadSheet').addEventListener('click', refreshSheet);
     $('leaveTeam').addEventListener('click', () => {
       if (!confirm('Toto zařízení přestane být připojené k tabulce. K ní se vrátíte odkazem.')) return;
-      try { localStorage.removeItem(SHEET_KEY); } catch (e) { /* ignoruj */ }
+      try { localStorage.removeItem(SHEET_KEY); } catch (e) { /* ignore */ }
       history.replaceState(null, '', location.pathname); location.reload();
     });
   }
 
-  // ---------- nastavení plánování (jen toto zařízení) ----------
+  // ---------- planning settings (this device only) ----------
   ['carPenalty', 'maxDetour', 'stopMin'].forEach(k => {
     $(k).value = state.settings[k];
     $(k).addEventListener('change', e => {
       const v = parseFloat(e.target.value);
       state.settings[k] = isNaN(v) ? Planner.DEFAULTS[k] : Math.max(0, v);
-      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); } catch (err) { /* ignoruj */ }
+      try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(state.settings)); } catch (err) { /* ignore */ }
     });
   });
 
@@ -264,7 +265,7 @@
   // ---------- start ----------
   async function start() {
     const box = $('teamBox');
-    if (!sheetRef) { renderConnectBox(box); return; } // bez tabulky se nic dalšího neukazuje
+    if (!sheetRef) { renderConnectBox(box); return; } // without a sheet nothing else is shown
     renderSheetBox(box);
     $('mainArea').hidden = false;
     renderRoster(); setSync('load');

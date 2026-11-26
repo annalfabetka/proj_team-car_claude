@@ -1,15 +1,15 @@
 /*
- * Lokální verze: jedno zařízení, bez sdílení.
- * Soupiska se ukládá jen v prohlížeči (localStorage), adresy se hledají přes Nominatim.
+ * Local version: a single device, no sharing.
+ * The roster is stored in the browser only (localStorage); addresses are looked up via Nominatim.
  */
 (function () {
   'use strict';
 
   const { $, esc, uid, STATUS, DRIVER, geoHtml, setupPlan } = Common;
-  const STORE = 'spolujizdy.v1'; // stejný klíč jako dřív, ať se uložená soupiska zachová
+  const STORE = 'spolujizdy.v1'; // key unchanged from earlier versions so a saved roster is kept
   const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
 
-  // ---------- stav a ukládání ----------
+  // ---------- state and persistence ----------
   function defaults() {
     return {
       people: [],
@@ -34,16 +34,16 @@
     try {
       const raw = localStorage.getItem(STORE);
       if (raw) return merge(JSON.parse(raw));
-    } catch (e) { /* prohlížeč bez úložiště – jedeme bez ukládání */ }
+    } catch (e) { /* browser without storage: carry on without saving */ }
     return defaults();
   }
   function save() {
-    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignoruj */ }
+    try { localStorage.setItem(STORE, JSON.stringify(state)); } catch (e) { /* ignore */ }
   }
   let state = load();
   state.people = state.people.map(normPerson);
 
-  // ---------- geokódování (Nominatim, max. 1 dotaz/s) ----------
+  // ---------- geocoding (Nominatim, max. 1 request/s) ----------
   const geoQueue = [];
   let geoRunning = false;
   const isHall = t => t === state.hall;
@@ -65,7 +65,7 @@
       try {
         const res = await fetch(`${NOMINATIM}?format=json&limit=1&accept-language=cs&q=${encodeURIComponent(query)}`);
         const data = await res.json();
-        if (target.address.trim() !== query) continue; // mezitím změněno
+        if (target.address.trim() !== query) continue; // changed in the meantime
         if (data.length) {
           target.lat = parseFloat(data[0].lat); target.lon = parseFloat(data[0].lon);
           target.label = data[0].display_name; target.fail = false;
@@ -78,7 +78,7 @@
     geoRunning = false;
   }
 
-  // ---------- soupiska ----------
+  // ---------- roster ----------
   function renderRoster() {
     $('roster').innerHTML = state.people.map(p => `
       <tr data-id="${esc(p.id)}">
@@ -112,7 +112,7 @@
     const f = e.target.dataset.f;
     if (f === 'name') p.name = e.target.value;
     else if (f === 'address') {
-      if (e.target.value === p.address) return; // beze změny (prohlížeč umí poslat change dvakrát)
+      if (e.target.value === p.address) return; // unchanged (browsers can fire 'change' twice)
       p.address = e.target.value; geocode(p);
     } else if (f === 'seats') {
       p.seats = Math.max(2, Math.min(9, parseInt(e.target.value, 10) || 4)); e.target.value = p.seats;
@@ -145,7 +145,7 @@
     save(); renderRoster();
   });
 
-  // ---------- zápas a nastavení ----------
+  // ---------- match and settings ----------
   function renderHallStatus() { $('hallStatus').innerHTML = state.hall.address ? geoHtml(state.hall) : ''; }
   $('hall').value = state.hall.address;
   $('arrive').value = state.arrive;
@@ -163,11 +163,11 @@
     });
   });
 
-  // ---------- záloha ----------
+  // ---------- backup ----------
   $('export').addEventListener('click', () => {
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
-    a.href = URL.createObjectURL(blob); a.download = 'spolujizdy-soupiska.json'; a.click();
+    a.href = URL.createObjectURL(blob); a.download = 'carpool-roster.json'; a.click();
     URL.revokeObjectURL(a.href);
   });
   $('importBtn').addEventListener('click', () => $('importFile').click());
@@ -184,11 +184,11 @@
     } catch (err) { alert('Soubor se nepodařilo načíst. Je to soubor exportovaný z této aplikace?'); }
   });
 
-  // ---------- plán ----------
+  // ---------- plan ----------
   setupPlan({ getState: () => state });
 
   // ---------- start ----------
-  if (!state.people.length) { addPerson(); addPerson(); addPerson(); } // prázdné řádky na rozjezd
+  if (!state.people.length) { addPerson(); addPerson(); addPerson(); } // a few blank rows to start with
   else renderRoster();
   renderHallStatus();
 })();

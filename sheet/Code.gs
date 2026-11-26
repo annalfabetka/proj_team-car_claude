@@ -1,25 +1,25 @@
 /**
- * Spolujízdy na zápasy – Google tabulka s kontrolou adres.
+ * Carpool planner - Google Sheet with address validation.
  *
- * Jak na to: nová prázdná Google tabulka → Rozšíření → Apps Script → vložit tento
- * soubor → uložit → spustit funkci „nastavit“ (jednou, Google se zeptá na oprávnění).
+ * How to use: new empty Google Sheet -> Extensions -> Apps Script -> paste this file ->
+ * save -> run the `setup` function once (Google asks for permissions).
  *
- * Co skript dělá:
- *  - připraví list „Tým“ (záhlaví, rozbalovací stav, kontrola počtu míst, barvy),
- *  - po zadání adresy ji ověří přes Google Mapy a do sloupců E–H doplní kontrolu,
- *    nalezenou adresu a souřadnice (ty pak čte plánovací aplikace),
- *  - přidá nabídku „Spolujízdy“ (zkontrolovat všechny adresy, nový zápas).
+ * What the script does:
+ *  - prepares the "Tým" sheet (header, status dropdown, seat-count check, colours),
+ *  - validates an address through Google Maps when it is entered and fills columns E-H
+ *    with the check result, the found address and the coordinates (the planning app reads those),
+ *  - adds a "Spolujízdy" menu (check all addresses, new match, update an older sheet).
  *
- * Rozložení listu:
- *   řádek 1  A: „Odkaz na zveřejněnou tabulku“   B: sem jednou vložte odkaz ze „Publikovat na webu“
- *   řádek 2  A: „Hala (adresa)“                  B: adresa haly       E–H: kontrola (automaticky)
- *   řádek 3  A: „Datum zápasu“                   B: datum, C: den v týdnu (automaticky)
- *   řádek 4  A: „Čas příjezdu…“                  B: např. 18:30
- *   řádek 6  záhlaví: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
- *   řádek 7+ hráčky
+ * Sheet layout (the labels in column A are Czech on purpose, the app finds the rows by them):
+ *   row 1   A: "Odkaz pro aplikaci"   B: paste the link from "Publish to web" here once
+ *   row 2   A: "Hala (adresa)"        B: hall address        E-H: check (automatic)
+ *   row 3   A: "Datum zápasu"         B: date, C: weekday (automatic)
+ *   row 4   A: "Čas příjezdu..."      B: e.g. 18:30
+ *   row 6   header: Jméno | Adresa | Stav | Míst v autě | Kontrola adresy | Nalezená adresa | Lat | Lon
+ *   row 7+  players
  *
- * Plánovací aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Datum…“, „Čas…“, „Jméno“),
- * proto je neměňte.
+ * The planning app finds rows by the labels in the first column ("Hala...", "Datum...", "Čas...",
+ * "Jméno"), so do not rename them.
  */
 
 var SHEET_NAME = 'Tým';
@@ -36,36 +36,48 @@ var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, L
 var WEEKDAYS = ['pondělí', 'úterý', 'středa', 'čtvrtek', 'pátek', 'sobota', 'neděle'];
 var STATUSES = ['Určitě beru auto', 'Můžu vzít auto', 'Potřebuji odvoz', 'Nejedu'];
 
-// Typy výsledků, které považujeme za dost přesné pro vyzvednutí (ulice + číslo / konkrétní místo).
+// Result types that count as precise enough for a pickup (street + number / a specific place).
 var PRECISE_TYPES = ['street_address', 'premise', 'subpremise', 'establishment',
   'point_of_interest', 'park', 'airport', 'train_station', 'transit_station'];
 
-/* ---------- jednorázové nastavení ---------- */
+/* ---------- one-time setup ---------- */
 
-/* ---------- sdílené přípravy řádků (používá nastavit i migrovat) ---------- */
+/* ---------- shared row preparation (used by setup and migrate) ---------- */
 
-function pripravRadekOdkazu(sh, savedLink) {
+function prepareLinkRow(sh, savedLink) {
   sh.getRange(LINK_ROW, 1, 1, 8).clearFormat();
-  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz na zveřejněnou tabulku').setFontWeight('bold');
-  sh.getRange(LINK_ROW, COL.ADDR).setNumberFormat('@').setValue(savedLink || '').setBackground('#fff8d6'); // pole k vložení odkazu
+  sh.getRange(LINK_ROW, COL.NAME).setValue('Odkaz pro aplikaci').setFontWeight('bold');
+  sh.getRange(LINK_ROW, COL.ADDR).setNumberFormat('@').setValue(savedLink || '').setBackground('#fff8d6'); // cell for pasting the link
 }
 
-function pripravRadekDatumu(sh) {
+function prepareDateRow(sh) {
   sh.getRange(DATE_ROW, 1, 1, 8).clearFormat();
   sh.getRange(DATE_ROW, COL.NAME).setValue('Datum zápasu').setFontWeight('bold');
   sh.getRange(DATE_ROW, COL.ADDR).setNumberFormat('d. M. yyyy').setValue('');
   var dateRule = SpreadsheetApp.newDataValidation().requireDate()
     .setAllowInvalid(false).setHelpText('Datum zápasu, např. 2. 12. 2026.').build();
   sh.getRange(DATE_ROW, COL.ADDR).setDataValidation(dateRule);
-  // den v týdnu se doplní sám (česky, nezávisle na jazyku tabulky)
+  // the weekday is filled in automatically (in Czech, independent of the sheet's language)
   var b = 'B' + DATE_ROW;
   sh.getRange(DATE_ROW, COL.STATUS).setFormula('=IF(' + b + '="","",IFERROR(CHOOSE(WEEKDAY(' + b + ',2),"' +
     WEEKDAYS.join('","') + '"),""))').setBackground('#f3f4f7');
   sh.getRange(DATE_ROW, COL.CHECK, 1, 4).setBackground('#f3f4f7');
 }
 
-/** Pravidla barev pro datum: žlutě když chybí, červeně když je v minulosti (staré stavy). */
-function pravidlaDatumu(sh) {
+/**
+ * (Re)installs the edit trigger. It must be an installable trigger so that it may call Maps.
+ * Also removes the trigger under its old name (`priUprave`) left by earlier versions of this script.
+ */
+function installTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    var name = t.getHandlerFunction();
+    if (name === 'onEditCheck' || name === 'priUprave') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('onEditCheck').forSpreadsheet(SpreadsheetApp.getActive()).onEdit().create();
+}
+
+/** Colour rules for the date: yellow when missing, red when in the past (stale statuses). */
+function dateRules(sh) {
   var range = [sh.getRange(DATE_ROW, COL.ADDR)];
   var b = '$B$' + DATE_ROW;
   return [
@@ -77,13 +89,13 @@ function pravidlaDatumu(sh) {
 }
 
 
-function nastavit() {
+function setup() {
   var ss = SpreadsheetApp.getActive();
   var ui = SpreadsheetApp.getUi();
   var sh = ss.getSheetByName(SHEET_NAME);
   var savedLink = '';
   if (sh) {
-    // opakované spuštění by smazalo data, proto se nejdřív zeptáme
+    // running it again would erase the data, so ask first
     var hasData = sh.getLastRow() >= FIRST_ROW &&
       sh.getRange(FIRST_ROW, 1, sh.getLastRow() - FIRST_ROW + 1, 2).getValues()
         .some(function (r) { return String(r[0] || r[1]).trim() !== ''; });
@@ -101,10 +113,10 @@ function nastavit() {
   sh.clear();
   sh.clearConditionalFormatRules();
 
-  // popisky
-  pripravRadekOdkazu(sh, savedLink);
+  // labels
+  prepareLinkRow(sh, savedLink);
   sh.getRange(HALL_ROW, COL.NAME).setValue('Hala (adresa)');
-  pripravRadekDatumu(sh);
+  prepareDateRow(sh);
   sh.getRange(TIME_ROW, COL.NAME).setValue('Čas příjezdu do haly');
   sh.getRange(TIME_ROW, COL.ADDR).setNumberFormat('@').setValue('18:30');
   sh.getRange(NOTE_ROW, COL.NAME).setValue(
@@ -112,7 +124,7 @@ function nastavit() {
   sh.getRange(HEADER_ROW, 1, 1, 8).setValues([[
     'Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon']]);
 
-  // vzhled
+  // appearance
   sh.getRange(LINK_ROW, COL.NAME, TIME_ROW, 1).setFontWeight('bold');
   sh.getRange(NOTE_ROW, COL.NAME).setFontStyle('italic').setFontColor('#6a7385');
   sh.getRange(HEADER_ROW, 1, 1, 8).setFontWeight('bold').setBackground('#e8eaf0');
@@ -129,10 +141,10 @@ function nastavit() {
   sh.setColumnWidth(COL.LAT, 90);
   sh.setColumnWidth(COL.LON, 90);
 
-  // souřadnice jako text, aby se nepletla desetinná čárka a tečka
+  // coordinates as text so the decimal comma and point never get mixed up
   sh.getRange(HALL_ROW, COL.LAT, LAST_ROW - HALL_ROW + 1, 2).setNumberFormat('@');
 
-  // ověřování vstupů
+  // input validation
   var statusRule = SpreadsheetApp.newDataValidation().requireValueInList(STATUSES, true)
     .setAllowInvalid(false).setHelpText('Vyberte ze seznamu.').build();
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(statusRule);
@@ -144,7 +156,7 @@ function nastavit() {
     .setAllowInvalid(false).setHelpText('Čas ve tvaru 18:30.').build();
   sh.getRange(TIME_ROW, COL.ADDR).setDataValidation(timeRule);
 
-  // barevné upozornění
+  // colour warnings
   var checkRange = [sh.getRange(HALL_ROW, COL.CHECK, 1, 1),
     sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 1)];
   var seatsRange = sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1);
@@ -159,62 +171,60 @@ function nastavit() {
     SpreadsheetApp.newConditionalFormatRule()
       .whenFormulaSatisfied('=AND(OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto"),NOT(ISNUMBER($D' + r + ')))')
       .setBackground('#ffe8b3').setRanges([seatsRange]).build(),
-  ].concat(pravidlaDatumu(sh)));
+  ].concat(dateRules(sh)));
 
-  // popisky, záhlaví a automatické sloupce chrání před nechtěným přepsáním (jen varování)
+  // protect labels, header and automatic columns from accidental edits (warning only)
   sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1).protect().setWarningOnly(true);
   sh.getRange(HEADER_ROW, 1, 1, 8).protect().setWarningOnly(true);
   sh.getRange(HALL_ROW, COL.CHECK, TIME_ROW - HALL_ROW + 1, 4).protect().setWarningOnly(true);
   sh.getRange(DATE_ROW, COL.STATUS).protect().setWarningOnly(true);
   sh.getRange(FIRST_ROW, COL.CHECK, LAST_ROW - FIRST_ROW + 1, 4).protect().setWarningOnly(true);
 
-  // spouštěč po úpravě (musí být „instalovaný“, aby směl volat Mapy)
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'priUprave') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('priUprave').forSpreadsheet(ss).onEdit().create();
+  installTrigger();
 
   ui.alert('Hotovo. Do sloupce „Adresa“ zkuste napsat adresu, vedle se objeví kontrola. ' +
     'Nastavte datum zápasu a až tabulku zveřejníte, vložte odkaz do žlutého pole v prvním řádku.');
 }
 
-/* ---------- nabídka ---------- */
+/* ---------- menu ---------- */
 
 function onOpen() {
   SpreadsheetApp.getUi().createMenu('Spolujízdy')
-    .addItem('Zkontrolovat všechny adresy', 'zkontrolovatVse')
-    .addItem('Nový zápas (vymazat stavy)', 'novyZapas')
+    .addItem('Zkontrolovat všechny adresy', 'checkAll')
+    .addItem('Nový zápas (vymazat stavy)', 'newMatch')
     .addSeparator()
-    .addItem('Aktualizovat starší tabulku (nové řádky)', 'migrovat')
+    .addItem('Aktualizovat starší tabulku (nové řádky)', 'migrate')
     .addToUi();
 }
 
-function zkontrolovatVse() {
+function checkAll() {
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
-  if (!sh) { SpreadsheetApp.getUi().alert('Nejdřív spusťte funkci „nastavit“.'); return; }
-  kontrolaRadku(sh, HALL_ROW);
+  if (!sh) { SpreadsheetApp.getUi().alert('Nejdřív spusťte funkci „setup“.'); return; }
+  checkRow(sh, HALL_ROW);
   var last = Math.min(sh.getLastRow(), LAST_ROW);
-  for (var row = FIRST_ROW; row <= last; row++) kontrolaRadku(sh, row);
+  for (var row = FIRST_ROW; row <= last; row++) checkRow(sh, row);
   SpreadsheetApp.getActive().toast('Kontrola dokončena.');
 }
 
-function novyZapas() {
+function newMatch() {
   var ui = SpreadsheetApp.getUi();
   if (ui.alert('Vymazat stav všech hráček pro nový zápas?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).clearContent();
-  ui.alert('Stavy jsou vymazané. Nezapomeňte nastavit nové datum zápasu (řádek „Datum zápasu“).');
+  ui.alert('Stavy jsou vymazané. Nezapomeňte setup nové datum zápasu (řádek „Datum zápasu“).');
 }
 
 /**
- * Doplní do starší tabulky nové řádky (odkaz na zveřejněnou tabulku, datum zápasu) a nic nemaže:
- * hráčky, adresy ani stavy zůstanou. Spusťte ji hned po vložení nové verze skriptu.
- * Funguje pro libovolnou starší verzi, doplní jen to, co chybí.
+ * Adds the rows a sheet from an older version lacks (link to the published sheet, match date)
+ * and deletes nothing: players, addresses and statuses stay. Also reinstalls the edit trigger.
+ * Run it right after pasting a new version of the script. Works for any older version
+ * and only adds what is missing.
  */
-function migrovat() {
+function migrate() {
   var ui = SpreadsheetApp.getUi();
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
-  if (!sh) { ui.alert('List „' + SHEET_NAME + '“ nenalezen. Spusťte funkci „nastavit“.'); return; }
+  if (!sh) { ui.alert('List „' + SHEET_NAME + '“ nenalezen. Spusťte funkci „setup“.'); return; }
+  installTrigger(); // the trigger handler was renamed, so always refresh it
   var label = function (r) { return String(sh.getRange(r, COL.NAME).getValue()).toLowerCase(); };
   var first = label(1);
   if (first.indexOf('odkaz') !== 0 && first.indexOf('hala') !== 0) {
@@ -223,14 +233,14 @@ function migrovat() {
   var added = [];
   if (label(LINK_ROW).indexOf('odkaz') !== 0) {
     sh.insertRowBefore(LINK_ROW);
-    pripravRadekOdkazu(sh, '');
+    prepareLinkRow(sh, '');
     added.push('řádek s odkazem');
   }
   if (label(DATE_ROW).indexOf('datum') !== 0) {
     if (label(HALL_ROW).indexOf('hala') !== 0) { ui.alert('Rozložení listu nepoznávám, nic jsem neměnil.'); return; }
     sh.insertRowBefore(DATE_ROW);
-    pripravRadekDatumu(sh);
-    sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat(pravidlaDatumu(sh)));
+    prepareDateRow(sh);
+    sh.setConditionalFormatRules(sh.getConditionalFormatRules().concat(dateRules(sh)));
     added.push('řádek s datem zápasu');
   }
   if (!added.length) { ui.alert('Tabulka už má nové rozložení, nic se neměnilo.'); return; }
@@ -239,13 +249,13 @@ function migrovat() {
     (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.');
 }
 
-/* ---------- kontrola po úpravě ---------- */
+/* ---------- check after an edit ---------- */
 
-function priUprave(e) {
+function onEditCheck(e) {
   if (!e || !e.range) return;
   var range = e.range, sh = range.getSheet();
   if (sh.getName() !== SHEET_NAME) return;
-  if (range.getLastColumn() < COL.ADDR || range.getColumn() > COL.ADDR) return; // adresa se nezměnila
+  if (range.getLastColumn() < COL.ADDR || range.getColumn() > COL.ADDR) return; // the address was not edited
   var done = 0;
   for (var row = range.getRow(); row <= range.getLastRow(); row++) {
     if (row !== HALL_ROW && (row < FIRST_ROW || row > LAST_ROW)) continue;
@@ -253,26 +263,26 @@ function priUprave(e) {
       sh.getRange(row, COL.CHECK).setValue('⚠ Příliš mnoho řádků najednou, použijte Spolujízdy → Zkontrolovat všechny adresy.');
       break;
     }
-    kontrolaRadku(sh, row);
+    checkRow(sh, row);
   }
 }
 
-function kontrolaRadku(sh, row) {
+function checkRow(sh, row) {
   var addr = String(sh.getRange(row, COL.ADDR).getValue()).trim();
-  var out = addr ? geokoduj(addr) : { check: '', found: '', lat: '', lon: '' };
+  var out = addr ? geocode(addr) : { check: '', found: '', lat: '', lon: '' };
   sh.getRange(row, COL.CHECK, 1, 4).setValues([[out.check, out.found, out.lat, out.lon]]);
 }
 
-/* ---------- geokódování ---------- */
+/* ---------- geocoding ---------- */
 
-function geokoduj(addr) {
+function geocode(addr) {
   var cache = CacheService.getScriptCache();
   var key = 'g' + Utilities.base64EncodeWebSafe(
     Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, addr.toLowerCase()));
   try {
     var hit = cache.get(key);
     if (hit) return JSON.parse(hit);
-  } catch (err) { /* bez cache */ }
+  } catch (err) { /* no cache */ }
 
   var resp;
   try {
@@ -280,17 +290,17 @@ function geokoduj(addr) {
   } catch (err) {
     return { check: '⚠ Služba Mapy je dočasně nedostupná, zkuste to za chvíli.', found: '', lat: '', lon: '' };
   }
-  var out = vyhodnot(resp);
+  var out = evaluateGeocode(resp);
   if (resp && (resp.status === 'OK' || resp.status === 'ZERO_RESULTS')) {
-    try { cache.put(key, JSON.stringify(out), 21600); } catch (err) { /* ignoruj */ }
+    try { cache.put(key, JSON.stringify(out), 21600); } catch (err) { /* ignore */ }
   }
   return out;
 }
 
-/** Čistá funkce: z odpovědi geokodéru udělá obsah sloupců kontrola / nalezená adresa / lat / lon. */
-function vyhodnot(resp) {
+/** Pure function: turns a geocoder response into the contents of the columns check / found address / lat / lon. */
+function evaluateGeocode(resp) {
   if (!resp || (resp.status !== 'OK' && resp.status !== 'ZERO_RESULTS')) {
-    // výpadek, překročený limit apod. – nejde o chybu v adrese
+    // outage, exceeded quota etc.: not an error in the address
     return { check: '⚠ Služba Mapy je dočasně nedostupná, zkuste to za chvíli.', found: '', lat: '', lon: '' };
   }
   if (resp.status === 'ZERO_RESULTS' || !resp.results || !resp.results.length) {

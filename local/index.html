@@ -1,0 +1,95 @@
+<!doctype html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Spolujízdy – lokální verze</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<link rel="stylesheet" href="../style.css?v=20261126-0758">
+</head>
+<body>
+<main>
+  <p class="nav"><a href="../">← Rozcestník</a></p>
+  <h1>Spolujízdy na zápasy <span class="tag">lokální verze</span></h1>
+  <p class="lead">Funguje jen na tomto zařízení: soupiska se ukládá v prohlížeči a nikam se nesdílí. Všechny hráčky tedy zadává jedna osoba. Aplikace navrhne řidičky, spolucestující a pořadí vyzvedávání.</p>
+
+  <section>
+    <h2>1. Hráčky</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>Jméno</th><th>Adresa (ulice, číslo, město)</th><th></th>
+          <th>Míst v autě</th><th>Stav</th><th></th>
+        </tr></thead>
+        <tbody id="roster"></tbody>
+      </table>
+    </div>
+    <div class="row">
+      <button id="add">+ Přidat hráčku</button>
+      <button id="geoAll">Najít všechny adresy</button>
+      <button id="newMatch">Nový zápas: vynulovat stavy</button>
+      <span class="small">„Míst v autě“ = včetně řidičky, vyplňuje se jen při nabídnutém autě.</span>
+    </div>
+  </section>
+
+  <section>
+    <h2>2. Zápas</h2>
+    <div class="grid">
+      <label class="f"><span>Adresa haly</span>
+        <input type="text" id="hall" placeholder="např. Sportovní hala, Praha 4">
+      </label>
+      <label class="f"><span>Být v hale v</span>
+        <input type="time" id="arrive" value="18:00">
+      </label>
+    </div>
+    <div class="row"><span id="hallStatus" class="geo wait"></span></div>
+    <details>
+      <summary>Nastavení plánování</summary>
+      <div class="grid" style="margin-top:10px">
+        <label class="f"><span>Preference méně aut: každé další auto „stojí“ (min)</span>
+          <input type="number" id="carPenalty" min="0" max="120"></label>
+        <label class="f"><span>Nejdelší přijatelná zajížďka spolucestující (min)</span>
+          <input type="number" id="maxDetour" min="0" max="120"></label>
+        <label class="f"><span>Čas na nastoupení u každé spolucestující (min)</span>
+          <input type="number" id="stopMin" min="0" max="15"></label>
+      </div>
+    </details>
+    <div class="row">
+      <button class="primary" id="plan">Naplánovat jízdy</button>
+      <span id="planStatus" class="small"></span>
+    </div>
+    <div id="notices"></div>
+  </section>
+
+  <section id="resultSec" hidden>
+    <h2>3. Plán</h2>
+    <div id="result"></div>
+    <div id="map"></div>
+    <div class="row">
+      <button id="copy">Zkopírovat zprávu pro skupinu</button>
+      <span id="copyStatus" class="small"></span>
+    </div>
+    <details>
+      <summary>Zobrazit text zprávy</summary>
+      <textarea id="msg" readonly></textarea>
+    </details>
+  </section>
+
+  <section id="backupSec">
+    <h2>Záloha soupisky</h2>
+    <p class="small" style="margin-top:0">Soupiska je uložená jen v tomto prohlížeči. Chcete-li ji použít na jiném zařízení, exportujte ji do souboru. Soubor s adresami nikam veřejně nenahrávejte.</p>
+    <div class="row" style="margin-top:0">
+      <button id="export">Stáhnout soubor</button>
+      <button id="importBtn">Nahrát soubor</button>
+      <input type="file" id="importFile" accept="application/json" hidden>
+    </div>
+    <p class="small">Adresy se pro nalezení souřadnic posílají na OpenStreetMap Nominatim a trasy počítá veřejný server OSRM. Nic dalšího se nikam neodesílá.</p>
+  </section>
+  <p class="small" style="text-align:center;margin-top:24px">verze <!--version-->20261126-0758<!--/version--></p>
+</main>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="../planner.js?v=20261126-0758"></script>
+<script src="../common.js?v=20261126-0758"></script>
+<script src="app.js?v=20261126-0758"></script>
+</body>
+</html>

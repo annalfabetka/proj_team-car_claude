@@ -1,16 +1,16 @@
 /*
- * Plánovač spolujízd na zápasy.
+ * Carpool planner for match trips.
  *
- * Čistá logika bez závislostí (běží v prohlížeči i v Node).
+ * Pure logic with no dependencies (runs in the browser and in Node).
  *
- * Úloha: skupina lidí jede do jedné haly. Někteří mají auto. Vybrat, které
- * řidičky pojedou, koho vyzvednou a v jakém pořadí, aby byl celkový čas
- * jízdy co nejkratší (a aut co nejméně).
+ * The task: a group of people travels to one hall and some have a car. Choose which
+ * drivers go, whom they pick up and in what order, so that the total driving
+ * time is as short as possible (and the number of cars as small as possible).
  *
- * Vstup plan({ dur, people, options }):
- *   dur      matice dob jízdy v minutách; indexy 0..n-1 jsou domovy lidí
- *            (ve stejném pořadí jako `people`), index n je hala.
- *   people   [{ name, canDrive, mustDrive, seats }]  (seats = míst včetně řidičky)
+ * Input plan({ dur, people, options }):
+ *   dur      matrix of driving times in minutes; indices 0..n-1 are people's homes
+ *            (in the same order as `people`), index n is the hall.
+ *   people   [{ name, canDrive, mustDrive, seats }]  (seats = seats including the driver)
  *   options  { carPenalty, maxDetour, stopMin, restarts, seed }
  */
 (function (root, factory) {
@@ -20,14 +20,14 @@
   'use strict';
 
   const DEFAULTS = {
-    carPenalty: 20,  // kolik minut „stojí“ každé další auto (preference méně aut)
-    maxDetour: 20,   // kolik minut navíc oproti přímé jízdě je pro spolucestující ještě OK
-    stopMin: 2,      // čas na nástup při vyzvednutí
-    restarts: 25,    // počet náhodných startů lokálního hledání
+    carPenalty: 20,  // how many minutes each additional car 'costs' (prefers fewer cars)
+    maxDetour: 20,   // extra minutes over a direct ride that are still OK for a passenger
+    stopMin: 2,      // time to get in at each pickup
+    restarts: 25,    // number of random starts of the local search
     seed: 1,
   };
-  const DETOUR_PENALTY = 3;     // měkká pokuta za každou minutu zajížďky nad limit
-  const MAX_EXACT_ORDER = 6;    // do tolika spolucestujících v autě zkoušíme všechna pořadí
+  const DETOUR_PENALTY = 3;     // soft penalty for each minute of detour above the limit
+  const MAX_EXACT_ORDER = 6;    // try every pickup order up to this many passengers per car
 
   function mulberry32(a) {
     return function () {
@@ -46,7 +46,7 @@
     return 2 * R * Math.asin(Math.sqrt(x));
   }
 
-  // Záloha, když není dostupné routování: vzdušná čára × 1.35, průměr 45 km/h.
+  // Fallback when routing is unavailable: straight line x 1.35, average 45 km/h.
   function fallbackMatrix(points) {
     return points.map(a => points.map(b => (haversineKm(a, b) * 1.35 / 45) * 60));
   }
@@ -76,14 +76,14 @@
   function plan({ dur, people, options }) {
     const o = Object.assign({}, DEFAULTS, options || {});
     const n = people.length;
-    const H = n; // index haly
+    const H = n; // index of the hall
     const all = people.map((_, i) => i);
 
     const candidates = all.filter(i => people[i].canDrive);
     const must = all.filter(i => people[i].mustDrive);
     if (!candidates.length) return { error: 'NO_DRIVERS' };
 
-    // --- ohodnocení jednoho auta (řidička d + seznam spolucestujících) ---
+    // --- cost of one car (driver d + list of passengers) ---
     const memo = new Map();
     function evalOrder(d, order) {
       const times = [];
@@ -113,7 +113,7 @@
           const c = evalOrder(d, ord);
           if (!r || c.cost < r.cost) r = c;
         }
-      } else { // pro neobvykle velká auta: nejbližší soused
+      } else { // for unusually large cars: nearest neighbour
         const rest = pass.slice(), ord = [];
         let prev = d;
         while (rest.length) {
@@ -128,7 +128,7 @@
       return r;
     }
 
-    // --- které sady řidiček přicházejí v úvahu ---
+    // --- which sets of drivers are worth considering ---
     const seatsOf = S => S.reduce((s, d) => s + people[d].seats, 0);
     const feasible = subsets(candidates).filter(S =>
       S.length > 0 && must.every(m => S.includes(m)) && seatsOf(S) >= n);
@@ -139,7 +139,7 @@
     const minSize = Math.min(...feasible.map(S => S.length));
     const tryList = feasible.filter(S => S.length <= minSize + 1);
 
-    // --- optimalizace rozdělení spolucestujících do aut pro pevnou sadu řidiček ---
+    // --- optimise how passengers are split between cars for a fixed set of drivers ---
     function optimize(S, rng) {
       const P = all.filter(i => !S.includes(i));
       const cap = S.map(d => people[d].seats - 1);
@@ -155,7 +155,7 @@
         }
         const cars = S.map(() => []);
         let ok = true;
-        for (const p of order) { // vkládání do auta s nejmenším přírůstkem
+        for (const p of order) { // insert into the car with the smallest increase
           let bc = -1, bd = Infinity;
           for (let c = 0; c < S.length; c++) {
             if (cars[c].length >= cap[c]) continue;
@@ -168,7 +168,7 @@
         if (!ok) continue;
 
         let improved = true;
-        while (improved) { // přesuny a výměny, dokud se něco zlepšuje
+        while (improved) { // moves and swaps while anything improves
           improved = false;
           for (let a = 0; a < S.length; a++) {
             for (const p of cars[a].slice()) {

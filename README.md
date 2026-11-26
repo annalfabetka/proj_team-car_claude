@@ -8,8 +8,8 @@ K dispozici jsou dvě verze vedle sebe. Plánovač (výpočet tras) mají spole�
 
 | Verze | Adresa | Pro koho |
 |---|---|---|
-| **Prototyp s Google tabulkou** | [`tabulka/`](tabulka/) | Hráčky vyplňují společnou Google tabulku, která sama kontroluje adresy. Aplikace z ní čte a plánuje. |
-| **Lokální verze** | [`lokalni/`](lokalni/) | Jedno zařízení bez sdílení. Soupisku zadává jedna osoba, uloží se jen v jejím prohlížeči. Nic se nenastavuje. Z rozcestníku je dočasně skrytá (zakomentovaná v `index.html`), přímý odkaz funguje. |
+| **Prototyp s Google tabulkou** | [`sheet/`](sheet/) | Hráčky vyplňují společnou Google tabulku, která sama kontroluje adresy. Aplikace z ní čte a plánuje. |
+| **Lokální verze** | [`local/`](local/) | Jedno zařízení bez sdílení. Soupisku zadává jedna osoba, uloží se jen v jejím prohlížeči. Nic se nenastavuje. Z rozcestníku je dočasně skrytá (zakomentovaná v `index.html`), přímý odkaz funguje. |
 
 ## Stavy hráček
 
@@ -24,7 +24,7 @@ Hráčky s prázdným stavem se do plánu nepočítají a aplikace na ně upozor
 
 ---
 
-## Lokální verze (`lokalni/`)
+## Lokální verze (`local/`)
 
 Bez nastavení. Otevřete stránku, zadejte hráčky (jméno, adresa, stav, případně počet míst), adresu haly a čas příjezdu a klikněte na **Naplánovat jízdy**. Výsledkem jsou auta s časy výjezdu a vyzvednutí, mapa a zpráva do skupiny.
 
@@ -34,15 +34,15 @@ Bez nastavení. Otevřete stránku, zadejte hráčky (jméno, adresa, stav, př�
 
 ---
 
-## Prototyp s Google tabulkou (`tabulka/`)
+## Prototyp s Google tabulkou (`sheet/`)
 
 Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sama ověřuje adresy přes Google Mapy, takže překlep se ukáže hned při psaní. Nepotřebujete žádnou databázi ani klíče. Nastavení trvá asi 10 minut.
 
 ### 1. Vytvoření tabulky
 
 1. Na https://sheets.google.com vytvořte novou **prázdnou** tabulku.
-2. **Rozšíření → Apps Script**. Smažte vše, co tam je, a vložte obsah souboru [`tabulka/Kod.gs`](tabulka/Kod.gs). Uložte.
-3. V horní liště vyberte funkci **`nastavit`** a klikněte na **Spustit**. Google se zeptá na oprávnění (je to váš vlastní skript, pro Mapy a úpravu tabulky). Povolte je. Pokud se zobrazí „Aplikace není ověřena“, zvolte **Upřesnit → Přejít na … (nezabezpečeno)**.
+2. **Rozšíření → Apps Script**. Smažte vše, co tam je, a vložte obsah souboru [`sheet/Code.gs`](sheet/Code.gs). Uložte.
+3. V horní liště vyberte funkci **`setup`** a klikněte na **Spustit**. Google se zeptá na oprávnění (je to váš vlastní skript, pro Mapy a úpravu tabulky). Povolte je. Pokud se zobrazí „Aplikace není ověřena“, zvolte **Upřesnit → Přejít na … (nezabezpečeno)**.
 4. Tabulka se připraví: list **Tým** se záhlavím, rozbalovací nabídkou stavu, kontrolou počtu míst a barvami. Zkuste do sloupce **Adresa** napsat adresu. Vedle se objeví kontrola:
    - `✓ Adresa nalezena`: v pořádku, vedle je nalezená adresa a souřadnice.
    - `⚠ Zkontrolujte, zda nalezená adresa sedí`: Google si není jistý (překlep). Souřadnice se použijí, ale ověřte adresu.
@@ -53,14 +53,16 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 
 1. **Sdílet → Kdokoli s odkazem → Editor.** Tento odkaz pošlete hráčkám, aby si doplnily řádek.
 2. **Soubor → Sdílet → Publikovat na webu.** Vyberte list **Tým** a formát **CSV** a klikněte na **Publikovat**. Zkopírujte vzniklý odkaz. Aplikace z něj čte data.
-3. **Vložte tento odkaz do žlutého pole v prvním řádku tabulky** (řádek „Odkaz na zveřejněnou tabulku“). Pak je vždy po ruce a nemusíte ho znovu hledat v nastavení zveřejnění. Skript ho sám zjistit neumí, vkládá se jednou ručně.
-4. Otevřete [`tabulka/`](tabulka/) a vložte tentýž odkaz (a volitelně odkaz na úpravy tabulky). Aplikace vytvoří odkaz pro hráčky.
+3. **Vložte tento odkaz do žlutého pole v prvním řádku tabulky** (řádek „Odkaz pro aplikaci“). Pak je vždy po ruce a nemusíte ho znovu hledat v nastavení zveřejnění. Skript ho sám zjistit neumí, vkládá se jednou ručně.
+4. Otevřete [`sheet/`](sheet/) a vložte tentýž odkaz (a volitelně odkaz na úpravy tabulky). Aplikace vytvoří odkaz pro hráčky.
 
 **Rozložení listu Tým:** řádek 1 odkaz na zveřejněnou tabulku, řádek 2 hala, řádek 3 datum zápasu, řádek 4 čas příjezdu, řádek 6 záhlaví, od řádku 7 hráčky. Sloupce E–H se plní samy. Aplikace hledá řádky podle popisků v prvním sloupci („Hala…“, „Datum…“, „Čas…“, „Jméno“), proto je nepřejmenovávejte.
 
 **Datum zápasu:** vyplňte ho ručně (např. `2. 12. 2026`), vedle se samo doplní **den v týdnu**. Datum se zobrazí v aplikaci i ve zprávě do skupiny („Zápas středa 2. 12. 2026 – sraz v hale 18:30…“). Slouží také k odlišení starých záznamů: když datum chybí (žlutě) nebo je v minulosti (červeně), upozorní na to tabulka i aplikace, že stavy hráček jsou nejspíš ze starého zápasu.
 
-**Starší tabulka (bez nových řádků):** nejdřív vložte novou verzi skriptu `Kod.gs` a pak v nabídce **Spolujízdy → Aktualizovat starší tabulku (nové řádky)** (nebo spusťte funkci `migrovat`). Skript doplní jen to, co chybí (řádek s odkazem, řádek s datem), a **nic nesmaže**. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `nastavit` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
+**Aktualizace skriptu ve starší tabulce:** vložte novou verzi skriptu `Code.gs` (nahraďte celý starý kód) a uložte. Pak **hned spusťte funkci `migrate`** (v nabídce **Spolujízdy → Aktualizovat starší tabulku (nové řádky)**, po obnovení stránky, nebo v editoru skriptů výběrem funkce `migrate` a tlačítkem **Spustit**). Je to nutné i tehdy, když se rozložení tabulky nezměnilo: funkce se jmenovaly česky a spouštěč kontroly adres odkazoval na starý název, `migrate` ho přeinstaluje. Bez toho by se po úpravě adresy nic nekontrolovalo.
+
+Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), a **nic nesmaže**. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
 
 **Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou. Pak nastavte datum nového zápasu.
 
@@ -87,28 +89,31 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 
 ## Struktura repozitáře
 
+Názvy složek, souborů a komentáře v kódu jsou anglicky. Česky zůstávají jen texty, které vidí hráčky (rozhraní, popisky v tabulce) a tento návod.
+
 ```
-index.html            rozcestník
-style.css             společné styly
-planner.js            plánovač (čistá logika, bez závislostí)
-common.js             společný kód: stavy, trasy, plán, mapa, zpráva do skupiny
-test.js               testy plánovače
-verze.js              nastaví číslo verze v HTML (spouští se po změně kódu)
-lokalni/              lokální verze (index.html, app.js)
-tabulka/              prototyp s Google tabulkou
-  index.html, app.js    stránka, která z tabulky čte
-  Kod.gs                skript do Google tabulky (kontrola adres, nastavení listu)
-  test-kod.js           testy skriptu proti simulované tabulce
+index.html            chooser page
+style.css             shared styles
+planner.js            the planner (pure logic, no dependencies)
+common.js             shared code: statuses, routes, the plan, the map, the group message
+test.js               planner tests
+version.js            sets the version number in the HTML (run after changing code)
+local/                local version (index.html, app.js)
+sheet/                Google Sheet prototype
+  index.html, app.js    the page that reads from the sheet
+  Code.gs               script for the Google Sheet (address validation, sheet setup)
+  test-code.js          tests of the script against a simulated sheet
+tabulka/, lokalni/    redirect stubs for old links (can be deleted later)
 ```
 
-Testy: `node test.js` (plánovač) a `node tabulka/test-kod.js` (skript tabulky).
+Testy: `node test.js` (plánovač) a `node sheet/test-code.js` (skript tabulky).
 
-**Číslo verze:** soubory se v HTML načítají jako `app.js?v=…` a číslo se ukazuje i v patičce stránek. Po každé změně kódu spusťte před nahráním `node verze.js`. Prohlížeč si pak po nasazení stáhne nové soubory místo starých z paměti (GitHub Pages je jinak drží až 10 minut). Samotná stránka se obnoví nejpozději za 10 minut, nebo hned po tvrdém obnovení (Ctrl+F5).
+**Číslo verze:** soubory se v HTML načítají jako `app.js?v=…` a číslo se ukazuje i v patičce stránek. Po každé změně kódu spusťte před nahráním `node version.js`. Prohlížeč si pak po nasazení stáhne nové soubory místo starých z paměti (GitHub Pages je jinak drží až 10 minut). Samotná stránka se obnoví nejpozději za 10 minut, nebo hned po tvrdém obnovení (Ctrl+F5).
 
 ## Soukromí
 
 - Adresy hráček jsou osobní údaje. V lokální verzi zůstávají v prohlížeči. V tabulkové verzi jsou v Google tabulce a jejím zveřejněném CSV.
-- Soubor se zálohou soupisky (`spolujizdy-soupiska.json`) obsahuje adresy. Je v `.gitignore`, aby se omylem nenahrál do veřejného repozitáře.
+- Soubor se zálohou soupisky (`carpool-roster.json`) obsahuje adresy. Je v `.gitignore`, aby se omylem nenahrál do veřejného repozitáře.
 
 ## Historie: verze s Firebase
 

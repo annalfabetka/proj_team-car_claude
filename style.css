@@ -52,7 +52,7 @@
   details { margin-top: 12px; } summary { cursor: pointer; color: var(--muted); }
   .small { font-size: .85rem; color: var(--muted); }
   textarea { width: 100%; min-height: 8rem; font: .9rem/1.4 ui-monospace, monospace; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 8px; }
-  /* mobil: každá hráčka jako karta místo širokého řádku tabulky */
+  /* mobile: show each player as a card instead of a wide table row */
   @media (max-width: 640px) {
     table { min-width: 0; }
     table, tbody { display: block; }
@@ -70,7 +70,7 @@
     input[type=checkbox] { width: 1.6rem; height: 1.6rem; }
     button { padding: 10px 14px; }
   }
-/* rozcestník a navigace */
+/* chooser page and navigation */
 a { color: var(--accent); }
 .nav { margin: 0; font-size: .9rem; }
 .tag { font-size: .7rem; font-weight: 600; vertical-align: middle; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; margin-left: 6px; white-space: nowrap; }

@@ -1,11 +1,14 @@
-# Osobní data hráček (adresy) nikdy nenahrávat do veřejného repozitáře.
-# Export soupisky z aplikace se jmenuje spolujizdy-soupiska.json.
+# Players' personal data (addresses) must never be committed to a public repository.
+# The roster export from the local version is carpool-roster.json
+# (older versions used spolujizdy-soupiska.json, still ignored).
+carpool-roster*.json
 spolujizdy-soupiska*.json
+*roster*.json
 *soupiska*.json
 *.csv
 *.xlsx
 
-# Obecné
+# General
 node_modules/
 .DS_Store
 *.log
