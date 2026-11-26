@@ -271,19 +271,82 @@ function addMissingRules(sh, newRules) {
 }
 
 /**
- * The return address only applies when "Jinam" is chosen: clears it (with its check) in the other rows.
- * Returns how many rows were cleared.
+ * Defaults for the trip back, filled in as soon as a player row has content: "Stejně jako tam" for everybody
+ * and "ano" (takes passengers back) for drivers. Only empty cells are filled, a choice is never overwritten.
  */
-function clearUnusedReturnAddress(sh, fromRow, toRow) {
-  if (toRow < fromRow) return 0;
-  var values = sh.getRange(fromRow, COL.RETURN, toRow - fromRow + 1, COL.RET_LON - COL.RETURN + 1).getValues();
-  var cleared = 0;
+function fillReturnDefaults(sh, fromRow, toRow) {
+  if (toRow < fromRow) return;
+  var values = sh.getRange(fromRow, COL.NAME, toRow - fromRow + 1, COL.TAKES_BACK - COL.NAME + 1).getValues();
   values.forEach(function (v, i) {
-    if (String(v[0]) === RETURN_ELSEWHERE) return;
-    var used = v.slice(COL.RET_ADDR - COL.RETURN).some(function (x) { return String(x) !== ''; });
-    if (used) { sh.getRange(fromRow + i, COL.RET_ADDR, 1, 5).clearContent(); cleared++; }
+    var row = fromRow + i;
+    var hasContent = String(v[COL.NAME - 1]).trim() !== '' || String(v[COL.ADDR - 1]).trim() !== '';
+    if (!hasContent) return;
+    if (String(v[COL.RETURN - 1]) === '') sh.getRange(row, COL.RETURN).setValue(RETURN_MODES[0]);
+    var drives = DRIVER_STATUSES.indexOf(String(v[COL.STATUS - 1])) !== -1;
+    if (drives && String(v[COL.TAKES_BACK - 1]) === '') sh.getRange(row, COL.TAKES_BACK).setValue(TAKES_BACK_VALUES[0]);
   });
-  return cleared;
+}
+
+/**
+ * Typing an address into the return column while the mode is "Stejně jako tam" means the person goes
+ * somewhere else, so the mode switches to "Jinam" by itself.
+ */
+function adoptTypedReturnAddress(sh, fromRow, toRow) {
+  if (toRow < fromRow) return;
+  var values = sh.getRange(fromRow, COL.ADDR, toRow - fromRow + 1, COL.RET_ADDR - COL.ADDR + 1).getValues();
+  values.forEach(function (v, i) {
+    var mode = String(v[COL.RETURN - COL.ADDR]);
+    var typed = String(v[COL.RET_ADDR - COL.ADDR]).trim(), home = String(v[0]).trim();
+    if ((mode === '' || mode === RETURN_MODES[0]) && typed !== '' && typed !== home) {
+      sh.getRange(fromRow + i, COL.RETURN).setValue(RETURN_ELSEWHERE);
+    }
+  });
+}
+
+/**
+ * Keeps columns K-O in line with the chosen mode:
+ *  - "Stejně jako tam" (or empty): the return address is the address of the way there, copied together with
+ *    its check, found address and coordinates (so nothing needs to be typed);
+ *  - "Odvoz zpět nepotřebuji": nothing to fill in, the columns are emptied;
+ *  - "Jinam": the person's own address stays; the automatic copy of the outbound address is removed.
+ * Only rows between fromRow and toRow are touched and only when something actually changes.
+ */
+function applyReturnMode(sh, fromRow, toRow) {
+  if (toRow < fromRow) return;
+  var n = toRow - fromRow + 1;
+  var values = sh.getRange(fromRow, COL.ADDR, n, COL.RET_LON - COL.ADDR + 1).getValues();   // B..O
+  var at = function (col) { return col - COL.ADDR; };
+  var empty = ['', '', '', '', ''];
+  var block = [], changed = false;
+  values.forEach(function (v) {
+    var mode = String(v[at(COL.RETURN)]);
+    var current = v.slice(at(COL.RET_ADDR), at(COL.RET_LON) + 1);                              // K..O
+    var next = current;
+    if (mode === '' || mode === RETURN_MODES[0]) {
+      next = [v[0], v[at(COL.CHECK)], v[at(COL.FOUND)], v[at(COL.LAT)], v[at(COL.LON)]];
+    } else if (mode === RETURN_MODES[2]) {
+      next = empty;
+    } else if (mode === RETURN_ELSEWHERE && String(current[0]).trim() !== '' &&
+               String(current[0]).trim() === String(v[0]).trim()) {
+      next = empty;                                                                           // the automatic copy
+    }
+    if (next.some(function (x, k) { return String(x) !== String(current[k]); })) changed = true;
+    block.push(next);
+  });
+  if (changed) sh.getRange(fromRow, COL.RET_ADDR, n, 5).setValues(block);
+}
+
+/** A new match starts with the defaults: everybody goes home the way they came, drivers take passengers back. */
+function resetReturnChoices(sh, fromRow, toRow) {
+  if (toRow < fromRow) return;
+  var n = toRow - fromRow + 1;
+  var values = sh.getRange(fromRow, COL.NAME, n, COL.ADDR - COL.NAME + 1).getValues();
+  var modes = values.map(function (v) {
+    return [(String(v[0]).trim() !== '' || String(v[1]).trim() !== '') ? RETURN_MODES[0] : ''];
+  });
+  sh.getRange(fromRow, COL.RETURN, n, 1).setValues(modes);
+  sh.getRange(fromRow, COL.TAKES_BACK, n, 1).clearContent();   // the statuses are empty again, nobody is a driver yet
+  applyReturnMode(sh, fromRow, toRow);
 }
 
 /** After "Jinam" is chosen for a row that already has an address typed in, check that address now. */
@@ -410,8 +473,10 @@ function checkAll() {
     values.forEach(function (v, i) {
       var row = FIRST_ROW + i;
       if (String(v[at(COL.ADDR)]).trim() !== '' || String(v[at(COL.CHECK)]) !== '') checkRow(sh, row);
-      if (String(v[at(COL.RET_ADDR)]).trim() !== '' || String(v[at(COL.RET_CHECK)]) !== '') checkReturnRow(sh, row);
+      if (String(v[at(COL.RETURN)]) === RETURN_ELSEWHERE && String(v[at(COL.RET_ADDR)]).trim() !== '') checkReturnRow(sh, row);
     });
+    fillReturnDefaults(sh, FIRST_ROW, last);
+    applyReturnMode(sh, FIRST_ROW, last);
   }
   ss.toast('Kontrola dokončena.');
 }
@@ -423,7 +488,9 @@ function newMatch() {
   if (!layoutMatches(sh)) { ui.alert(LAYOUT_MISMATCH); return; }
   if (ui.alert('Vymazat stav všech hráček pro nový zápas?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).clearContent();
-  ui.alert('Stavy jsou vymazané. Nezapomeňte nastavit nové datum zápasu (řádek „Datum zápasu“).');
+  resetReturnChoices(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW)); // the way home is chosen per match too
+  ui.alert('Stavy jsou vymazané a cesta zpět je vrácená na výchozí hodnoty (stejně jako tam). ' +
+    'Nezapomeňte nastavit nové datum zápasu (řádek „Datum zápasu“).');
 }
 
 /**
@@ -464,6 +531,8 @@ function migrate() {
   sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
   applyReturnColumns(sh);
   var cleared = clearDriverOnlyFields(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
+  fillReturnDefaults(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
+  applyReturnMode(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   var headerRestored = ensureHeader(sh);
 
   var msg = added.length
@@ -488,10 +557,16 @@ function onEditCheck(e) {
 
   // a passenger / non-attending player has no seat count and does not take anybody back
   if (touches(COL.STATUS)) clearDriverOnlyFields(sh, fromRow, toRow);
-  // the return address only applies for "Jinam"
-  if (touches(COL.RETURN)) { clearUnusedReturnAddress(sh, fromRow, toRow); checkNewReturnRows(sh, fromRow, toRow); }
+  // defaults for the trip back as soon as a row has content ("Stejně jako tam", drivers: "ano")
+  if (touches(COL.NAME) || touches(COL.ADDR) || touches(COL.STATUS) || touches(COL.RETURN)) fillReturnDefaults(sh, fromRow, toRow);
+
   if (touches(COL.ADDR)) checkEditedRows(sh, range, true, checkRow, COL.CHECK);          // the hall row is included
+
+  // the trip back: an address typed into column K means "Jinam"; then keep K-O in line with the mode
+  if (touches(COL.RET_ADDR)) adoptTypedReturnAddress(sh, fromRow, toRow);
+  if (touches(COL.ADDR) || touches(COL.RETURN) || touches(COL.RET_ADDR)) applyReturnMode(sh, fromRow, toRow);
   if (touches(COL.RET_ADDR)) checkEditedRows(sh, range, false, checkReturnRow, COL.RET_CHECK);
+  if (touches(COL.RETURN)) checkNewReturnRows(sh, fromRow, toRow);
 }
 
 /** Runs checkFn for the edited hall / player rows, at most MAX_ROWS_PER_EDIT of them. */
@@ -511,11 +586,8 @@ function checkEditedRows(sh, range, includeHall, checkFn, checkCol) {
 function checkRow(sh, row) { checkAddress(sh, row, COL.ADDR, COL.CHECK); }
 
 function checkReturnRow(sh, row) {
-  // the return address is only used when "Jinam" is chosen
-  if (String(sh.getRange(row, COL.RETURN).getValue()) !== RETURN_ELSEWHERE) {
-    sh.getRange(row, COL.RET_CHECK, 1, 4).clearContent();
-    return;
-  }
+  // outside "Jinam" the columns are kept by applyReturnMode (a copy of the outbound address)
+  if (String(sh.getRange(row, COL.RETURN).getValue()) !== RETURN_ELSEWHERE) return;
   checkAddress(sh, row, COL.RET_ADDR, COL.RET_CHECK);
 }
 

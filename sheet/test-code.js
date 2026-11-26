@@ -393,19 +393,103 @@ test('trip back: typing the address first and choosing "Jinam" afterwards still 
   edit(r, COL.RETURN);
   assert.strictEqual(get(r, COL.RET_CHECK), '✓ Adresa nalezena');
 });
-test('trip back: choosing something other than "Jinam" clears the return address and its check', () => {
+const returnCols = r => [COL.RET_ADDR, COL.RET_CHECK, COL.RET_FOUND, COL.RET_LAT, COL.RET_LON].map(c => get(r, c));
+const outboundCols = r => [COL.ADDR, COL.CHECK, COL.FOUND, COL.LAT, COL.LON].map(c => get(r, c));
+
+test('trip back defaults: a row with content gets "Stejně jako tam", and drivers also "ano"', () => {
+  cells = new Map(); cfRules = []; validations.clear();
+  sandbox.setup();
   const r = row(0);
-  assert.notStrictEqual(get(r, COL.RET_ADDR), '');
-  cells.set(key(r, COL.RETURN), 'Stejně jako tam');
-  edit(r, COL.RETURN);
-  for (const col of [COL.RET_ADDR, COL.RET_CHECK, COL.RET_FOUND, COL.RET_LAT, COL.RET_LON]) assert.strictEqual(get(r, col), '', 'column ' + col);
-  assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam', 'the choice itself stays');
+  cells.set(key(r, COL.NAME), 'Anna'); edit(r, COL.NAME);
+  assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam');
+  assert.strictEqual(get(r, COL.TAKES_BACK), '', 'a passenger-to-be is not asked yet');
+  cells.set(key(r, COL.STATUS), 'Můžu vzít auto'); edit(r, COL.STATUS);
+  assert.strictEqual(get(r, COL.TAKES_BACK), 'ano');
+  const blank = row(1);
+  cells.set(key(blank, COL.STATUS), 'Určitě beru auto'); edit(blank, COL.STATUS);   // no name, no address
+  assert.strictEqual(get(blank, COL.RETURN), '', 'an empty row gets no defaults');
+});
+test('trip back defaults: a choice that was made is never overwritten', () => {
+  const r = row(2);
+  cells.set(key(r, COL.NAME), 'Bára'); cells.set(key(r, COL.RETURN), 'Jinam'); cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  edit(r, COL.STATUS);
+  assert.strictEqual(get(r, COL.RETURN), 'Jinam'); assert.strictEqual(get(r, COL.TAKES_BACK), 'ne');
+});
+test('"Stejně jako tam": the return address, its check and coordinates are a copy of the outbound ones', () => {
+  const r = row(3);
+  cells.set(key(r, COL.NAME), 'Cecílie'); cells.set(key(r, COL.ADDR), 'Vinohradská 12, Praha');
+  edit(r, COL.NAME); edit(r, COL.ADDR);
+  assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam');
+  assert.deepStrictEqual(returnCols(r), outboundCols(r));
+  assert.strictEqual(get(r, COL.RET_ADDR), 'Vinohradská 12, Praha');
+  assert.strictEqual(get(r, COL.RET_CHECK), '✓ Adresa nalezena');
+  assert.strictEqual(get(r, COL.RET_LAT), '50.075538');
+});
+test('"Stejně jako tam": changing the outbound address updates the copy (without a second geocoding)', () => {
+  const r = row(3);
+  cells.set(key(r, COL.ADDR), 'Praha');
+  const n = calls.geocode; edit(r, COL.ADDR);
+  assert(calls.geocode - n <= 1, 'at most the outbound address is geocoded, the copy costs nothing');
+  assert.deepStrictEqual(returnCols(r), outboundCols(r));
+  assert(get(r, COL.RET_CHECK).startsWith('⚠ Upřesněte'), get(r, COL.RET_CHECK));
+});
+test('typing a different address into the return column switches the mode to "Jinam" and checks it', () => {
+  const r = row(3);
+  cells.set(key(r, COL.ADDR), 'Vinohradská 12, Praha'); edit(r, COL.ADDR);
+  cells.set(key(r, COL.RET_ADDR), 'Vinohradska 12 prha'); edit(r, COL.RET_ADDR);
+  assert.strictEqual(get(r, COL.RETURN), 'Jinam');
+  assert(get(r, COL.RET_CHECK).startsWith('⚠ Zkontrolujte'), 'the typed address is geocoded: ' + get(r, COL.RET_CHECK));
+  assert.strictEqual(get(r, COL.RET_ADDR), 'Vinohradska 12 prha', 'her own address stays');
+  assert.deepStrictEqual(outboundCols(r)[0], 'Vinohradská 12, Praha', 'the outbound address is untouched');
+});
+test('"Jinam": her own address stays when the outbound address changes', () => {
+  const r = row(3);
+  cells.set(key(r, COL.ADDR), 'Praha'); edit(r, COL.ADDR);
+  assert.strictEqual(get(r, COL.RET_ADDR), 'Vinohradska 12 prha');
+});
+test('choosing "Jinam" in a row that has the automatic copy removes the copy so she can type her own', () => {
+  const r = row(4);
+  cells.set(key(r, COL.NAME), 'Dana'); cells.set(key(r, COL.ADDR), 'Vinohradská 12, Praha');
+  edit(r, COL.NAME); edit(r, COL.ADDR);
+  assert.strictEqual(get(r, COL.RET_ADDR), 'Vinohradská 12, Praha');
+  cells.set(key(r, COL.RETURN), 'Jinam'); edit(r, COL.RETURN);
+  assert.deepStrictEqual(returnCols(r), ['', '', '', '', ''], 'the copy is gone');
+  cells.set(key(r, COL.RET_ADDR), 'Vinohradská 12, Praha ');   // typing the very same address again
+  edit(r, COL.RET_ADDR);
+  assert.strictEqual(get(r, COL.RETURN), 'Jinam');
+});
+test('"Odvoz zpět nepotřebuji": the return columns are emptied', () => {
+  const r = row(4);
+  cells.set(key(r, COL.RETURN), 'Odvoz zpět nepotřebuji'); edit(r, COL.RETURN);
+  assert.deepStrictEqual(returnCols(r), ['', '', '', '', '']);
+  assert.strictEqual(get(r, COL.RETURN), 'Odvoz zpět nepotřebuji');
+});
+test('switching back to "Stejně jako tam" copies the outbound address again', () => {
+  const r = row(4);
+  cells.set(key(r, COL.RETURN), 'Stejně jako tam'); edit(r, COL.RETURN);
+  assert.deepStrictEqual(returnCols(r), outboundCols(r));
+  assert.strictEqual(get(r, COL.RET_ADDR), 'Vinohradská 12, Praha');
+});
+test('newMatch brings the way home back to the defaults, but keeps the seat counts', () => {
+  const r = row(0);
+  cells.set(key(r, COL.STATUS), 'Určitě beru auto'); cells.set(seatsCell(r), 5); cells.set(key(r, COL.TAKES_BACK), 'ne');
+  cells.set(key(r, COL.ADDR), 'Vinohradská 12, Praha'); edit(r, COL.ADDR);
+  cells.set(key(r, COL.RETURN), 'Jinam'); cells.set(key(r, COL.RET_ADDR), 'Chata'); edit(r, COL.RET_ADDR);
+  sandbox.newMatch();
+  assert.strictEqual(get(r, COL.STATUS), '');
+  assert.strictEqual(get(r, COL.RETURN), 'Stejně jako tam', 'the exception of the last match is gone');
+  assert.strictEqual(get(r, COL.TAKES_BACK), '');
+  assert.strictEqual(get(r, COL.SEATS), 5, 'the size of the car stays');
+  assert.deepStrictEqual(returnCols(r), outboundCols(r), 'the return address is the outbound one again');
+  assert.strictEqual(get(row(9), COL.RETURN), '', 'rows without content stay empty');
+  assert(calls.alerts[calls.alerts.length - 1].includes('výchozí hodnoty'));
 });
 test('trip back: an address in a row that is not "Jinam" is not geocoded', () => {
   const r = row(2), n = calls.geocode;
   cells.set(key(r, COL.RETURN), 'Odvoz zpět nepotřebuji'); cells.set(key(r, COL.RET_ADDR), 'Vinohradská 12, Praha');
   edit(r, COL.RET_ADDR);
   assert.strictEqual(calls.geocode, n); assert.strictEqual(get(r, COL.RET_CHECK), '');
+  assert.strictEqual(get(r, COL.RET_ADDR), '', 'nothing is asked in this mode, so the typed address is dropped');
 });
 test('trip back: a passenger status clears "takes passengers back" together with the seat count', () => {
   const r = row(3);
@@ -440,6 +524,21 @@ test('trip back: migrate() adds the return columns to a sheet without them, once
   sandbox.migrate(); sandbox.migrate();
   RET_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'no duplicates after reruns: ' + f));
   assert.strictEqual(ruleCount(GREY, COL.SEATS), 1); assert.strictEqual(ruleCount(GREY, COL.TAKES_BACK), 1);
+});
+test('migrate() gives the existing players the trip-back defaults and fills in their return addresses', () => {
+  cells = layoutCells([
+    [key(row(0), COL.NAME), 'Anna'], [key(row(0), COL.ADDR), 'Vinohradská 12, Praha'], [key(row(0), COL.CHECK), '✓ Adresa nalezena'],
+    [key(row(0), COL.FOUND), 'Vinohradská 12, 120 00 Praha 2'], [key(row(0), COL.LAT), '50.075538'], [key(row(0), COL.LON), '14.437801'],
+    [key(row(0), COL.STATUS), 'Určitě beru auto'], [seatsCell(row(0)), 4],
+    [key(row(1), COL.NAME), 'Bára'], [key(row(1), COL.STATUS), 'Potřebuji odvoz'],
+    [key(row(2), COL.NAME), 'Cecílie'], [key(row(2), COL.RETURN), 'Jinam'], [key(row(2), COL.RET_ADDR), 'Chata 1'],   // an exception that exists already
+  ]);
+  sandbox.migrate();
+  assert.strictEqual(get(row(0), COL.RETURN), 'Stejně jako tam'); assert.strictEqual(get(row(0), COL.TAKES_BACK), 'ano');
+  assert.deepStrictEqual(returnCols(row(0)), outboundCols(row(0)), 'the return address copies the outbound one');
+  assert.strictEqual(get(row(1), COL.RETURN), 'Stejně jako tam'); assert.strictEqual(get(row(1), COL.TAKES_BACK), '', 'only drivers are asked');
+  assert.strictEqual(get(row(2), COL.RETURN), 'Jinam'); assert.strictEqual(get(row(2), COL.RET_ADDR), 'Chata 1', 'an existing exception is kept');
+  assert.strictEqual(get(row(5), COL.RETURN), '', 'rows without content stay empty');
 });
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');
