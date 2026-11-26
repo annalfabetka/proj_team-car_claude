@@ -70,9 +70,18 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 - Políčka, která vyplňuje tabulka nebo která se v daném případě nevyplňují, jsou šedá. Oranžové je „Jinam“ bez adresy.
 - **Nový zápas** vrací cestu zpět na výchozí hodnoty (stejně jako tam), aby výjimka z minulého zápasu nezůstala, a počty míst řidiček nechává.
 
+**Pevné zařazení do auta (sloupec P „Jedu s (pevně)“).** Když se hráčky domluví mezi sebou, že pojedou spolu, i když by plánovač zvolil jiné rozdělení (třeba kvůli větší zajížďce), spolucestující si ve sloupci P vybere jméno řidičky ze seznamu. Plánovač ji pak do jejího auta zařadí **vždy**, tato řidička bude řídit a zbylé hráčky se rozdělí kolem toho. V plánu je taková spolucestující označená „dohodnuto“.
+
+- Vyplňuje se jen u spolucestujících. U řidiček je políčko šedé a samo se smaže, když si zvolí stav řidičky.
+- Jméno se hledá bez ohledu na velikost písmen a diakritiku. Zmizí-li řidička ze seznamu nebo nejede jako řidička, plán dohodu **ignoruje a řekne to**. Oranžové políčko upozorní na jméno, které už v tabulce není.
+- Když je do jednoho auta zařazeno víc lidí, než se vejde, plán se nespočítá a ohlásí, kolik se vejde.
+- Zajížďka řidičky se u pevně zařazené osoby neomezuje (limit zajížďky platí jen pro ostatní), je to na dohodě.
+- Cestou zpět zůstane osoba ve stejném autě, pokud v něm je pro ni místo. Přesune se jako poslední, když kapacita zpět nestačí.
+- Dohody patří k jednomu zápasu, **Nový zápas** je smaže.
+
 **Aktualizace skriptu ve starší tabulce:** vložte novou verzi skriptu `Code.gs` (nahraďte celý starý kód) a uložte. Pak **hned spusťte funkci `migrate`** (v nabídce **Spolujízdy → Aktualizovat starší tabulku (nové řádky)**, po obnovení stránky, nebo v editoru skriptů výběrem funkce `migrate` a tlačítkem **Spustit**). Je to nutné i tehdy, když se rozložení tabulky nezměnilo: funkce se jmenovaly česky a spouštěč kontroly adres odkazoval na starý název, `migrate` ho přeinstaluje. Bez toho by se po úpravě adresy nic nekontrolovalo.
 
-Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), nastaví pravidla pro počet míst a pro sloupce cesty zpět (I–O), smaže zbylé počty míst u spolucestujících a doplní chybějící nadpisy sloupců, třeba nové nadpisy I–O (existující text nepřepisuje), a existujícím hráčkám nastaví výchozí hodnoty cesty zpět a vyplní adresu návratu. Už zadané výjimky nechá. Staré odpovědi *ano*/*ne* ve sloupci J (z předchozí verze) převede na počet míst zpět (*ano* = jako tam, *ne* = 1) a přejmenuje nadpis. Nové sloupce jsou vpravo, takže se řádky ani stávající sloupce neposunou. Jinak **nic nemaže**: hráčky, adresy a stavy zůstanou. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
+Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek s odkazem, řádek s datem), nastaví pravidla pro počet míst a pro sloupce cesty zpět (I–O) a „Jedu s“ (P), smaže zbylé počty míst u spolucestujících a doplní chybějící nadpisy sloupců, třeba nové nadpisy I–O (existující text nepřepisuje), a existujícím hráčkám nastaví výchozí hodnoty cesty zpět a vyplní adresu návratu. Už zadané výjimky nechá. Staré odpovědi *ano*/*ne* ve sloupci J (z předchozí verze) převede na počet míst zpět (*ano* = jako tam, *ne* = 1) a přejmenuje nadpis. Nové sloupce jsou vpravo, takže se řádky ani stávající sloupce neposunou. Jinak **nic nemaže**: hráčky, adresy a stavy zůstanou. Funguje pro každou dřívější verzi a při opakovaném spuštění nic neposune. Funkci `setup` na tabulce s daty znovu nespouštějte, před smazáním se sice zeptá, ale smazala by hráčky.
 
 **Nový zápas:** v nabídce **Spolujízdy** (u názvu tabulky) zvolte **Nový zápas (vymazat stavy)**. Adresy zůstanou. Pak nastavte datum nového zápasu.
 

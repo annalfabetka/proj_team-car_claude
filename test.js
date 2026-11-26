@@ -436,6 +436,73 @@ test('driver detour (real data): a driver is not sent on a 36 minute detour to c
   const total = r => r.totalDrivingMin;
   assert(total(after) - total(before) < 10, 'and it costs only a few minutes of driving in total');
 });
+// ---------- fixed agreements ("ridesWith") ----------
+test('fixed agreement: the person is put into that car even when the algorithm would choose another', () => {
+  // A lives in the west, B in the east, C lives next to B but has agreed to ride with A
+  const pts = [pt(0, 0), pt(90, 30), pt(91, 31), pt(100, 0)];                     // A, B, C (next to B, off A's way), hall
+  const people = [{ canDrive: true, mustDrive: true, seats: 4 }, { canDrive: true, mustDrive: true, seats: 4 }, { canDrive: false }];
+  const free = Planner.plan({ dur: euclid(pts), people, options: { maxDriverDetour: 1e9 } });
+  assert.deepStrictEqual(free.cars.find(c => c.driver === 1).passengers, [2], 'by itself C rides with B');
+  const agreed = Planner.plan({ dur: euclid(pts), people: [people[0], people[1], { canDrive: false, ridesWith: 0 }], options: { maxDriverDetour: 1e9 } });
+  validate(agreed, people);
+  assert.deepStrictEqual(agreed.cars.find(c => c.driver === 0).passengers, [2], 'with the agreement C rides with A');
+  assert.deepStrictEqual(agreed.cars.find(c => c.driver === 1).passengers, []);
+});
+test('fixed agreement: the chosen driver always drives, even if she was only a possible driver', () => {
+  // B could drive but would normally just ride along; C has agreed to ride with B
+  const pts = [pt(0, 0), pt(5, 5), pt(6, 5), pt(60, 0)];
+  const people = [{ canDrive: true, mustDrive: true, seats: 4 }, { canDrive: true, seats: 4 }, { canDrive: false, ridesWith: 1 }];
+  const res = Planner.plan({ dur: euclid(pts), people });
+  validate(res, people);
+  assert(res.cars.some(c => c.driver === 1), 'B drives');
+  assert.deepStrictEqual(res.cars.find(c => c.driver === 1).passengers, [2]);
+});
+test('fixed agreement: the other passengers are placed around it and the seats are counted', () => {
+  // D's car has 3 passenger seats; two people are fixed to D, so only one more can join
+  const pts = [pt(0, 0), pt(50, 50), pt(1, 1), pt(2, 1), pt(3, 1), pt(4, 1), pt(100, 0)];
+  const people = [
+    { canDrive: true, mustDrive: true, seats: 4 }, { canDrive: true, mustDrive: true, seats: 4 },
+    { canDrive: false, ridesWith: 0 }, { canDrive: false, ridesWith: 0 }, { canDrive: false }, { canDrive: false },
+  ];
+  const res = Planner.plan({ dur: euclid(pts), people });
+  validate(res, people);
+  const a = res.cars.find(c => c.driver === 0).passengers;
+  assert(a.includes(2) && a.includes(3) && a.length <= 3, JSON.stringify(a));
+});
+test('fixed agreement: errors for too many people in one car and for a driver who cannot drive', () => {
+  const pts = [pt(0, 0), pt(1, 0), pt(2, 0), pt(3, 0), pt(9, 9)];
+  const tooMany = Planner.plan({ dur: euclid(pts), people: [
+    { canDrive: true, mustDrive: true, seats: 2 }, { canDrive: false, ridesWith: 0 }, { canDrive: false, ridesWith: 0 }, { canDrive: false }] });
+  assert.strictEqual(tooMany.error, 'PINNED_TOO_MANY');
+  assert.deepStrictEqual([tooMany.driver, tooMany.count, tooMany.capacity], [0, 2, 1]);
+  const notDriver = Planner.plan({ dur: euclid(pts), people: [
+    { canDrive: true, mustDrive: true, seats: 4 }, { canDrive: false }, { canDrive: false, ridesWith: 1 }, { canDrive: false }] });
+  assert.strictEqual(notDriver.error, 'PINNED_NOT_DRIVER');
+  assert.deepStrictEqual([notDriver.person, notDriver.driver], [2, 1]);
+});
+test('fixed agreement: on the way back the person stays with the driver, even when moving would save time', () => {
+  // as in the "two people going to the same place" case, but person 2 has agreed to ride with A
+  const pts = [pt(-60, 0), pt(40, 0), pt(41, 1), pt(42, 0), pt(0, 0)];
+  const people = [{ canDrive: true, seats: 4 }, { canDrive: true, seats: 4 }, { canDrive: false, ridesWith: 0 }, { canDrive: false }];
+  const outbound = { cars: [{ driver: 0, passengers: [2, 3] }, { driver: 1, passengers: [] }] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
+  assert(back.cars.find(c => c.driver === 0).passengers.includes(2), 'person 2 stays with A');
+  assert(!back.reshuffled.some(r => r.person === 2));
+});
+test('fixed agreement: on the way back the agreed people are the last to give up their seat', () => {
+  // A has room for one passenger on the way back; 2 is agreed with A, 3 is not: 3 has to leave
+  const pts = [pt(100, 0), pt(10, 0), pt(20, 0), pt(-50, 0), pt(0, 0)];            // A (east), 2 and 3 live east-ish/west, B (west), hall
+  const people = [{ canDrive: true, seats: 4, returnSeats: 2 }, { canDrive: false, ridesWith: 0 }, { canDrive: false }, { canDrive: true, seats: 4 }];
+  const outbound = { cars: [{ driver: 0, passengers: [1, 2] }, { driver: 3, passengers: [] }] };
+  const back = Planner.planReturn({ dur: euclid(pts), people, outbound, options: { stopMin: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
+  assert.deepStrictEqual(back.cars.find(c => c.driver === 0).passengers, [1], 'the agreed person keeps her seat');
+  assert.deepStrictEqual(back.reshuffled.map(r => r.person), [2]);
+  // when every passenger is agreed, one has to go anyway
+  const both = Planner.planReturn({ dur: euclid(pts), people: [people[0], { canDrive: false, ridesWith: 0 }, { canDrive: false, ridesWith: 0 }, people[3]], outbound, options: { stopMin: 0, maxDetour: 1e9, maxDriverDetour: 1e9 } });
+  assert.strictEqual(both.cars.find(c => c.driver === 0).passengers.length, 1);
+  assert.strictEqual(both.reshuffled.length, 1);
+  assert.deepStrictEqual(both.unplaced, []);
+});
 test('driver detour: the setting is part of the defaults and can be switched off', () => {
   assert.strictEqual(Planner.DEFAULTS.maxDriverDetour, 25);
 });

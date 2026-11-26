@@ -85,6 +85,7 @@ function validationBuilder() {
   const b = new Proxy({}, {
     get: (t, p) => p === 'requireFormulaSatisfied' ? f => { v.formula = f; return b; }
       : p === 'requireValueInList' ? l => { v.list = l; return b; }
+      : p === 'requireValueInRange' ? rg => { v.range = rg; return b; }
       : p === 'setHelpText' ? h => { v.help = h; return b; }
       : p === 'build' ? () => v
       : () => b,
@@ -558,6 +559,55 @@ test('migrate() converts the old yes/no answers of column J into seats back and 
   assert.strictEqual(get(row(0), COL.SEATS_BACK), seatsBackDefault(row(0)), '"ano" becomes the default (as many as there)');
   assert.strictEqual(get(row(1), COL.SEATS_BACK), 1, '"ne" becomes 1: only the driver');
   assert.strictEqual(get(row(2), COL.SEATS_BACK), 3, 'a number that is already there stays');
+});
+const PIN_RULES = () => {   // [formula, column]
+  const r = FIRST_ROW;
+  return [
+    ['=OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto")', COL.RIDES_WITH],
+    ['=AND($P' + r + '<>"",COUNTIF($A$' + FIRST_ROW + ':$A$200,$P' + r + ')=0)', COL.RIDES_WITH],
+  ];
+};
+test('fixed agreement: setup() creates column P with a dropdown of the players and its colour rules', () => {
+  cells = new Map(); cfRules = []; validations.clear();
+  sandbox.setup();
+  assert.strictEqual(COL.RIDES_WITH, 16);
+  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Jedu s (pevně)');
+  const v = validations.get(key(FIRST_ROW, COL.RIDES_WITH));
+  assert(v && v.range, 'a dropdown taken from a range');
+  assert.strictEqual(v.range.getA1Notation(), FIRST_ROW + ',' + COL.NAME + ',194,1', 'the names in column A');
+  assert(v.help.includes('Plánovač vás do jejího auta zařadí vždy'), v.help);
+  PIN_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'rule once: ' + f));
+});
+test('fixed agreement: choosing a driver status clears the cell, a passenger keeps her agreement', () => {
+  const r1 = row(0), r2 = row(1);
+  cells.set(key(r1, COL.NAME), 'Klára'); cells.set(key(r1, COL.STATUS), 'Potřebuji odvoz'); cells.set(key(r1, COL.RIDES_WITH), 'Adéla');
+  edit(r1, COL.STATUS);
+  assert.strictEqual(get(r1, COL.RIDES_WITH), 'Adéla', 'a passenger keeps it');
+  cells.set(key(r2, COL.NAME), 'Pája'); cells.set(key(r2, COL.STATUS), 'Můžu vzít auto'); cells.set(key(r2, COL.RIDES_WITH), 'Adéla');
+  edit(r2, COL.STATUS);
+  assert.strictEqual(get(r2, COL.RIDES_WITH), '', 'a driver drives herself, so there is nothing to agree');
+});
+test('fixed agreement: a new match clears the agreements (they belong to one match)', () => {
+  const r = row(0);
+  assert.strictEqual(get(r, COL.RIDES_WITH), 'Adéla');
+  sandbox.newMatch();
+  assert.strictEqual(get(r, COL.RIDES_WITH), '');
+  assert(calls.alerts[calls.alerts.length - 1].includes('Dohody „Jedu s“ jsou smazané'));
+});
+test('fixed agreement: migrate() adds column P to a sheet without it, once, and clears it for drivers', () => {
+  cells = layoutCells([
+    [key(HEADER_ROW, 2), 'Adresa'], [key(row(0), COL.NAME), 'Klára'], [key(row(0), COL.STATUS), 'Potřebuji odvoz'], [key(row(0), COL.RIDES_WITH), 'Adéla'],
+    [key(row(1), COL.NAME), 'Pája'], [key(row(1), COL.STATUS), 'Určitě beru auto'], [key(row(1), COL.RIDES_WITH), 'Adéla'],
+  ]);
+  cfRules = []; validations.clear();
+  sandbox.migrate();
+  assert.strictEqual(get(HEADER_ROW, COL.RIDES_WITH), 'Jedu s (pevně)');
+  assert(validations.get(key(FIRST_ROW, COL.RIDES_WITH)).range, 'the dropdown is applied');
+  PIN_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, f));
+  assert.strictEqual(get(row(0), COL.RIDES_WITH), 'Adéla', 'the passenger keeps hers');
+  assert.strictEqual(get(row(1), COL.RIDES_WITH), '', 'the driver does not');
+  sandbox.migrate(); sandbox.migrate();
+  PIN_RULES().forEach(([f, col]) => assert.strictEqual(ruleCount(f, col), 1, 'no duplicates: ' + f));
 });
 const link = 'https://docs.google.com/spreadsheets/d/e/2PACX-x/pub?gid=0&single=true&output=csv';
   cells.set(key(LINK_ROW, 2), link); cells.set(key(row(0), 1), 'Anna');

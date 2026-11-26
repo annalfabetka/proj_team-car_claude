@@ -128,6 +128,7 @@
       retAddress: String(r[10] || '').trim(), retCheck: check, retLabel: String(r[12] || '').trim(),
       retLat: cellNum(r[13]), retLon: cellNum(r[14]),
       retFail: check.startsWith('✗'), retWarn: check.startsWith('⚠'),
+      ridesWithName: String(r[15] || '').trim(),   // column P: the driver this passenger has agreed to ride with
     };
   }
 

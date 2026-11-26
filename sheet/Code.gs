@@ -20,6 +20,8 @@
  *
  * Columns I-O describe the trip back: I "Návrat" (same as there / somewhere else / no ride needed),
  * J "Míst zpět" (drivers only: seats on the way back), K the return address with its check in L-O.
+ * Column P "Jedu s (pevně)" (passengers only): the driver she has agreed to ride with; the planner always
+ * puts her into that car.
  *
  * The planning app finds rows by the labels in the first column ("Hala...", "Datum...", "Čas...",
  * "Jméno"), so do not rename them.
@@ -37,7 +39,8 @@ var LAST_ROW = 200;
 var MAX_ROWS_PER_EDIT = 30;
 var COL = { NAME: 1, ADDR: 2, STATUS: 3, SEATS: 4, CHECK: 5, FOUND: 6, LAT: 7, LON: 8,
   // the trip back
-  RETURN: 9, SEATS_BACK: 10, RET_ADDR: 11, RET_CHECK: 12, RET_FOUND: 13, RET_LAT: 14, RET_LON: 15 };
+  RETURN: 9, SEATS_BACK: 10, RET_ADDR: 11, RET_CHECK: 12, RET_FOUND: 13, RET_LAT: 14, RET_LON: 15,
+  RIDES_WITH: 16 };   // a passenger's fixed agreement: the driver she rides with
 var RETURN_MODES = ['Stejně jako tam', 'Jinam', 'Odvoz zpět nepotřebuji'];
 var RETURN_ELSEWHERE = 'Jinam';
 var LEGACY_TAKES_BACK_LABEL = 'Zpět vezmu spolucestující';   // the earlier yes/no version of column J
@@ -46,7 +49,7 @@ var DRIVER_STATUSES = ['Určitě beru auto', 'Můžu vzít auto'];
 var NON_DRIVER_STATUSES = ['Potřebuji odvoz', 'Nejedu'];
 var STATUSES = DRIVER_STATUSES.concat(NON_DRIVER_STATUSES);
 var HEADER_LABELS = ['Jméno', 'Adresa', 'Stav', 'Míst v autě', 'Kontrola adresy', 'Nalezená adresa', 'Lat', 'Lon',
-  'Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět'];
+  'Návrat', 'Míst zpět', 'Adresa návratu', 'Kontrola návratu', 'Nalezená adresa návratu', 'Lat zpět', 'Lon zpět', 'Jedu s (pevně)'];
 var LAST_COL = HEADER_LABELS.length;
 
 // Result types that count as precise enough for a pickup (street + number / a specific place).
@@ -191,6 +194,54 @@ function dateRules(sh) {
   ];
 }
 
+
+/* ---------- fixed agreement: "Jedu s (pevně)" (column P) ---------- */
+
+/** Dropdown with the names of the players: the driver this passenger has agreed to ride with. */
+function ridesWithValidation(sh) {
+  return SpreadsheetApp.newDataValidation()
+    .requireValueInRange(sh.getRange(FIRST_ROW, COL.NAME, LAST_ROW - FIRST_ROW + 1, 1), true)
+    .setAllowInvalid(false)
+    .setHelpText('Jen pro spolucestující: jméno řidičky, se kterou jste se domluvila. Plánovač vás do jejího auta zařadí vždy.')
+    .build();
+}
+
+function formulaRule(formula, ranges, background, font) {
+  var b = SpreadsheetApp.newConditionalFormatRule().whenFormulaSatisfied(formula).setRanges(ranges);
+  if (background) b = b.setBackground(background);
+  if (font) b = b.setFontColor(font);
+  return b.build();
+}
+
+/** Colours: grey for drivers (they drive themselves), orange when the chosen name is no longer in the list. */
+function pinRules(sh) {
+  var range = [sh.getRange(FIRST_ROW, COL.RIDES_WITH, LAST_ROW - FIRST_ROW + 1, 1)];
+  var r = FIRST_ROW, names = '$A$' + FIRST_ROW + ':$A$' + LAST_ROW;
+  return [
+    formulaRule('=' + driverCondition(), range, '#eceef2', null),
+    formulaRule('=AND($P' + r + '<>"",COUNTIF(' + names + ',$P' + r + ')=0)', range, '#ffe8b3', null),
+  ];
+}
+
+/** Validation and width of the column. Safe to run repeatedly. */
+function applyPinColumn(sh) {
+  sh.getRange(FIRST_ROW, COL.RIDES_WITH, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(ridesWithValidation(sh));
+  sh.setColumnWidth(COL.RIDES_WITH, 170);
+}
+
+/** A driver drives herself, so the "rides with" cell of players whose status says they drive is cleared. */
+function clearPinsOfDrivers(sh, fromRow, toRow) {
+  if (toRow < fromRow) return 0;
+  var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.RIDES_WITH - COL.STATUS + 1).getValues();
+  var statusAt = 0, pinAt = COL.RIDES_WITH - COL.STATUS, cleared = 0;
+  values.forEach(function (v, i) {
+    if (DRIVER_STATUSES.indexOf(String(v[statusAt])) !== -1 && String(v[pinAt]) !== '') {
+      sh.getRange(fromRow + i, COL.RIDES_WITH).clearContent();
+      cleared++;
+    }
+  });
+  return cleared;
+}
 
 /* ---------- the trip back (columns I-O) ---------- */
 
@@ -368,7 +419,8 @@ function convertLegacyTakesBack(sh, fromRow, toRow) {
   return converted;
 }
 
-/** A new match starts with the defaults: everybody goes home the way they came, drivers take passengers back. */
+/** A new match starts with the defaults: everybody goes home the way they came, drivers take passengers back,
+ *  and the fixed agreements "Jedu s" are gone. */
 function resetReturnChoices(sh, fromRow, toRow) {
   if (toRow < fromRow) return;
   var n = toRow - fromRow + 1;
@@ -378,6 +430,7 @@ function resetReturnChoices(sh, fromRow, toRow) {
   });
   sh.getRange(fromRow, COL.RETURN, n, 1).setValues(modes);
   sh.getRange(fromRow, COL.SEATS_BACK, n, 1).clearContent();   // the statuses are empty again, nobody is a driver yet
+  sh.getRange(fromRow, COL.RIDES_WITH, n, 1).clearContent();   // agreements "Jedu s" belong to one match
   applyReturnMode(sh, fromRow, toRow);
 }
 
@@ -454,6 +507,7 @@ function setup() {
     .setAllowInvalid(false).setHelpText('Čas ve tvaru 18:30.').build();
   sh.getRange(TIME_ROW, COL.ADDR).setDataValidation(timeRule);
   applyReturnColumns(sh);
+  applyPinColumn(sh);
 
   // colour warnings
   var checkRange = [sh.getRange(HALL_ROW, COL.CHECK, 1, 1),
@@ -465,7 +519,7 @@ function setup() {
       .setBackground('#ffe8b3').setFontColor('#7a4b00').setRanges(checkRange).build(),
     SpreadsheetApp.newConditionalFormatRule().whenTextStartsWith('✓')
       .setFontColor('#1a7f3c').setRanges(checkRange).build(),
-  ].concat(seatsRules(sh), dateRules(sh), returnRules(sh)));
+  ].concat(seatsRules(sh), dateRules(sh), returnRules(sh), pinRules(sh)));
 
   // protect labels, header and automatic columns from accidental edits (warning only)
   protectOnce(sh.getRange(LINK_ROW, COL.NAME, HEADER_ROW, 1));
@@ -521,7 +575,7 @@ function newMatch() {
   if (ui.alert('Vymazat stav všech hráček pro nový zápas?', ui.ButtonSet.YES_NO) !== ui.Button.YES) return;
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).clearContent();
   resetReturnChoices(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW)); // the way home is chosen per match too
-  ui.alert('Stavy jsou vymazané a cesta zpět je vrácená na výchozí hodnoty (stejně jako tam). ' +
+  ui.alert('Stavy jsou vymazané a cesta zpět je vrácená na výchozí hodnoty (stejně jako tam). Dohody „Jedu s“ jsou smazané. ' +
     'Nezapomeňte nastavit nové datum zápasu (řádek „Datum zápasu“).');
 }
 
@@ -557,11 +611,13 @@ function migrate() {
   if (added.length) sh.setFrozenRows(HEADER_ROW);
 
   // rules for the seat count and the trip back (validation + colours), added once and never duplicated
-  addMissingRules(sh, seatsRules(sh).concat(returnRules(sh)));
+  addMissingRules(sh, seatsRules(sh).concat(returnRules(sh), pinRules(sh)));
   sh.getRange(HEADER_ROW, 1, 1, LAST_COL).clearDataValidations(); // headings must never carry a dropdown
   sh.getRange(FIRST_ROW, COL.STATUS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(statusValidation());
   sh.getRange(FIRST_ROW, COL.SEATS, LAST_ROW - FIRST_ROW + 1, 1).setDataValidation(seatsValidation());
   applyReturnColumns(sh);
+  applyPinColumn(sh);
+  clearPinsOfDrivers(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   var cleared = clearDriverOnlyFields(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   convertLegacyTakesBack(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
   fillReturnDefaults(sh, FIRST_ROW, Math.min(sh.getLastRow(), LAST_ROW));
@@ -572,7 +628,7 @@ function migrate() {
     ? 'Hotovo, přidáno: ' + added.join(', ') + '. Vyplňte datum zápasu' +
       (added[0] === 'řádek s odkazem' ? ' a vložte odkaz ze „Soubor → Sdílet → Publikovat na webu“ do žlutého pole v 1. řádku' : '') + '.'
     : 'Tabulka už má nové rozložení, nic se nepřidávalo.';
-  msg += ' Pravidla pro počet míst (jen u řidiček), sloupce pro cestu zpět a spouštěč kontroly adres jsou aktualizované.';
+  msg += ' Pravidla pro počet míst (jen u řidiček), sloupce pro cestu zpět a „Jedu s“ a spouštěč kontroly adres jsou aktualizované.';
   if (cleared) msg += ' Vymazán zbylý počet míst u spolucestujících: ' + cleared + '.';
   if (headerRestored) msg += ' Doplněny chybějící nadpisy sloupců v řádku ' + HEADER_ROW + '.';
   ui.alert(msg);
@@ -589,7 +645,7 @@ function onEditCheck(e) {
   var fromRow = Math.max(range.getRow(), FIRST_ROW), toRow = Math.min(range.getLastRow(), LAST_ROW);
 
   // a passenger / non-attending player has no seat count and does not take anybody back
-  if (touches(COL.STATUS)) clearDriverOnlyFields(sh, fromRow, toRow);
+  if (touches(COL.STATUS)) { clearDriverOnlyFields(sh, fromRow, toRow); clearPinsOfDrivers(sh, fromRow, toRow); }
   // defaults for the trip back as soon as a row has content ("Stejně jako tam", drivers: "ano")
   if (touches(COL.NAME) || touches(COL.ADDR) || touches(COL.STATUS) || touches(COL.RETURN)) fillReturnDefaults(sh, fromRow, toRow);
 

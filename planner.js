@@ -11,11 +11,15 @@
  *   dur      matrix of driving times in minutes; indices 0..n-1 are people's homes
  *            (in the same order as `people`), index n is the hall.
  *   people   [{ name, canDrive, mustDrive, seats }]  (seats = seats including the driver)
+ *            Optional, a fixed agreement:
+ *              ridesWith        index of the driver this person has agreed to ride with; she is put into that car
+ *                               (and that driver always drives) whatever the algorithm would prefer, on the way
+ *                               back too unless the car has no room for her
  *            Optional, for the trip back (see planReturn):
  *              needsReturnRide  false = gets home on their own, takes no seat on the way back (default true)
  *              returnSeats      drivers: seats in the car on the way back, driver included (default: as many as
  *                               on the way there; 1 = takes nobody back)
- *   options  { carPenalty, maxDetour, stopMin, restarts, seed }
+ *   options  { carPenalty, maxDetour, maxDriverDetour, stopMin, restarts, seed }
  */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory();
@@ -102,8 +106,20 @@
     const H = n; // index of the hall
     const all = people.map((_, i) => i);
 
-    const candidates = all.filter(i => people[i].canDrive);
-    const must = all.filter(i => people[i].mustDrive);
+    // People who agreed to ride with a particular driver: that driver must drive and the person is placed in her car
+    const pinned = all.filter(i => people[i].ridesWith != null && people[i].ridesWith !== i && !people[i].mustDrive);
+    const pinnedSet = new Set(pinned);
+    for (const i of pinned) {
+      const d = people[i].ridesWith;
+      if (!people[d] || !people[d].canDrive || pinnedSet.has(d)) return { error: 'PINNED_NOT_DRIVER', person: i, driver: d };
+    }
+    const pinnedOf = d => pinned.filter(i => people[i].ridesWith === d);
+    for (const d of new Set(pinned.map(i => people[i].ridesWith))) {
+      const count = pinnedOf(d).length, capacity = people[d].seats - 1;
+      if (count > capacity) return { error: 'PINNED_TOO_MANY', driver: d, count, capacity };
+    }
+    const candidates = all.filter(i => people[i].canDrive && !pinnedSet.has(i)); // a pinned person rides, she does not drive
+    const must = all.filter(i => people[i].mustDrive || pinned.some(q => people[q].ridesWith === i));
     if (!candidates.length) return { error: 'NO_DRIVERS' };
 
     // --- cost of one car (driver d + list of passengers) ---
@@ -177,7 +193,7 @@
 
     // --- optimise how passengers are split between cars for a fixed set of drivers ---
     function optimize(S, rng) {
-      const P = all.filter(i => !S.includes(i));
+      const P = all.filter(i => !S.includes(i) && !pinnedSet.has(i));   // pinned people are placed first and never moved
       const cap = S.map(d => people[d].seats - 1);
       // passengers who will not fit into the car on the way back have to change cars later: small penalty each
       const cost = (c, list) => bestRoute(S[c], list).cost +
@@ -191,7 +207,7 @@
           const j = Math.floor(rng() * (i + 1));
           [order[i], order[j]] = [order[j], order[i]];
         }
-        const cars = S.map(() => []);
+        const cars = S.map(d => pinnedOf(d));
         let ok = true;
         for (const p of order) { // insert into the car with the smallest increase
           let bc = -1, bd = Infinity;
@@ -210,6 +226,7 @@
           improved = false;
           for (let a = 0; a < S.length; a++) {
             for (const p of cars[a].slice()) {
+              if (pinnedSet.has(p)) continue;
               for (let b = 0; b < S.length; b++) {
                 if (a === b) continue;
                 const aWithout = cars[a].filter(x => x !== p);
@@ -222,6 +239,7 @@
                   }
                 }
                 for (const q of cars[b].slice()) {
+                  if (pinnedSet.has(q)) continue;
                   const bSwap = cars[b].filter(x => x !== q).concat(p);
                   const aSwap = aWithout.concat(q);
                   const delta = cost(a, aSwap) + cost(b, bSwap) -
@@ -337,16 +355,23 @@
     const fromDriver = new Map();
     outbound.cars.forEach(c => c.passengers.forEach(p => fromDriver.set(p, c.driver)));
     const base = outbound.cars.map(c => ({ driver: c.driver, pass: c.passengers.filter(needsRide) }));
+    // people with a fixed agreement stay in their car on the way back unless it has no room for them
+    const agreed = new Set(people.map((_, i) => i).filter(i => people[i].ridesWith != null && fromDriver.get(i) === people[i].ridesWith));
+    const released = new Set();
+    const fixed = p => agreed.has(p) && !released.has(p);
     const orphans = [];
     base.forEach(c => {
       while (c.pass.length > capacity(c.driver)) {
         const full = route(c.driver, c.pass).cost;
-        let worst = c.pass[0], gain = -Infinity;
-        c.pass.forEach(p => {
+        const free = c.pass.filter(p => !agreed.has(p));
+        const pool = free.length ? free : c.pass;          // agreed people are the last to give up their seat
+        let worst = pool[0], gain = -Infinity;
+        pool.forEach(p => {
           const g = full - route(c.driver, c.pass.filter(x => x !== p)).cost;
           if (g > gain) { gain = g; worst = p; }
         });
         c.pass = c.pass.filter(x => x !== worst);
+        if (agreed.has(worst)) released.add(worst);
         orphans.push(worst);
       }
     });
@@ -380,13 +405,14 @@
       }
       if (r > 0) { // a few random moves to leave a local optimum of the previous rounds
         for (let kick = 0; kick < 1 + (r % 3); kick++) {
-          const from = willing.filter(ci => trial[ci].length > 0);
+          const from = willing.filter(ci => trial[ci].some(x => !fixed(x)));
           if (!from.length) break;
           const a = from[Math.floor(rng() * from.length)];
           const to = willing.filter(ci => ci !== a && trial[ci].length < capacity(base[ci].driver));
           if (!to.length) continue;
           const b = to[Math.floor(rng() * to.length)];
-          const person = trial[a][Math.floor(rng() * trial[a].length)];
+          const movable = trial[a].filter(x => !fixed(x));          // agreed people are never shaken loose
+          const person = movable[Math.floor(rng() * movable.length)];
           trial[a] = trial[a].filter(x => x !== person);
           trial[b] = trial[b].concat(person);
         }
@@ -399,15 +425,16 @@
           for (const b of willing) {
             if (a === b) continue;
             const spare = capacity(base[b].driver) - trial[b].length;
-            for (let k = 1; k <= Math.min(3, trial[a].length, spare); k++) {
-              for (const group of combinations(trial[a], k)) {
+            const movable = trial[a].filter(x => !fixed(x));
+            for (let k = 1; k <= Math.min(3, movable.length, spare); k++) {
+              for (const group of combinations(movable, k)) {
                 const aWithout = trial[a].filter(x => !group.includes(x)), bWith = trial[b].concat(group);
                 const delta = cost(b, bWith) + cost(a, aWithout) - cost(a, trial[a]) - cost(b, trial[b]);
                 if (delta < bestDelta) { bestDelta = delta; bestMove = { a, b, aNew: aWithout, bNew: bWith }; }
               }
             }
-            for (const x of trial[a]) {
-              for (const y of trial[b]) {
+            for (const x of trial[a].filter(q => !fixed(q))) {
+              for (const y of trial[b].filter(q => !fixed(q))) {
                 const aSwap = trial[a].filter(q => q !== x).concat(y), bSwap = trial[b].filter(q => q !== y).concat(x);
                 const delta = cost(a, aSwap) + cost(b, bSwap) - cost(a, trial[a]) - cost(b, trial[b]);
                 if (delta < bestDelta) { bestDelta = delta; bestMove = { a, b, aNew: aSwap, bNew: bSwap }; }

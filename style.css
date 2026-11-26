@@ -88,3 +88,5 @@ a.btn.primary { background: var(--accent); color: var(--accent-text); border-col
 /* total time and navigation links of a car */
 .car-foot { margin: 8px 0 0; font-size: .9rem; }
 a.navlink { font-size: .8rem; margin-left: 4px; white-space: nowrap; }
+/* a passenger fixed to a car by agreement */
+.fixed-tag { font-size: .72rem; color: var(--accent); border: 1px solid var(--accent); border-radius: 999px; padding: 0 6px; white-space: nowrap; }
