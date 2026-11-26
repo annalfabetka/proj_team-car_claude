@@ -23,11 +23,11 @@
   const DRIVER = s => s === 'must' || s === 'can';
   const ATTENDING = s => s === 'must' || s === 'can' || s === 'pass';
 
-  const TIMES_DISCLAIMER = 'Časy jsou jen orientační. Před odjezdem doporučujeme zkontrolovat aktuální dopravní situaci v Google Maps nebo Waze.';
+  const TIMES_DISCLAIMER = 'Časy jsou jen orientační. Před odjezdem doporučujeme zkontrolovat aktuální dopravní situaci v Google Maps.';
   // shown when nobody travels differently on the way back (otherwise the section 'Cesta zpět' is shown)
   const SAME_BACK = 'Doprava zpět je stejná: všichni se vracejí ve stejných autech na stejné adresy jako cestou tam.';
   const SAME_BACK_SHORT = 'Zpět jedeme stejně jako tam (stejná auta, stejné adresy).';
-  const TIMES_DISCLAIMER_SHORT = 'Časy jsou orientační, před odjezdem zkontrolujte dopravu (Google Maps / Waze).';
+  const TIMES_DISCLAIMER_SHORT = 'Časy jsou orientační, před odjezdem zkontrolujte dopravu (Google Maps).';
 
   const $ = id => document.getElementById(id);
   const esc = s => String(s).replace(/[&<>"']/g, c =>
@@ -55,8 +55,6 @@
     if (stops.length) q.push('waypoints=' + encodeURIComponent(stops.slice(0, 9).map(coord).join('|'))); // 9 is the limit
     return 'https://www.google.com/maps/dir/?' + q.join('&');
   }
-  // A Waze link can hold a single destination only (no start, no stops), so it is offered per stop
-  const wazeUrl = pt => `https://waze.com/ul?ll=${coord(pt)}&navigate=yes&zoom=17`;
   const navLink = (href, label) => `<a class="navlink" href="${esc(href)}" target="_blank" rel="noopener noreferrer">${label}</a>`;
 
   // address lookup status of a player or the hall
@@ -179,11 +177,11 @@
       const stops = car.timeline.map((s, k) => {
         const when = fmtTime(depart + s.t);
         if (k === 0) return { t: when, text: `<b>${esc(nameOf(driver))}</b> vyjíždí z domu`, msg: `${nameOf(driver)} vyjíždí v ${when}` };
-        if (k === car.timeline.length - 1) return { t: when, text: `příjezd do haly ${navLink(wazeUrl(hallPoint), 'Waze')}`, msg: `hala ${when}` };
+        if (k === car.timeline.length - 1) return { t: when, text: 'příjezd do haly', msg: `hala ${when}` };
         const p = attendees[s.node];
         const ride = car.rides[k - 1];
         return {
-          t: when, text: `vyzvednout <b>${esc(nameOf(p))}</b> <span class="sub">${esc(p.address)} · v autě ${Math.round(ride.rideMin)} min</span> ${navLink(wazeUrl(p), 'Waze')}`,
+          t: when, text: `vyzvednout <b>${esc(nameOf(p))}</b> <span class="sub">${esc(p.address)} · v autě ${Math.round(ride.rideMin)} min</span>`,
           msg: `${nameOf(p)} ${when}`,
         };
       });
@@ -227,7 +225,7 @@
       const items = car.passengers.map((pi, k) => {
         const p = attendees[pi], m = moved.get(pi);
         const note = m ? ` · přesun z auta ${carNo.get(m.fromDriver)}` : '';
-        return `<li><span class="t">${k + 1}.</span><span>vysadit <b>${esc(nameOf(p))}</b> <span class="sub">${esc(returnAddressOf(p))}${note}</span> ${navLink(wazeUrl(returnPlaceOf(p)), 'Waze')}</span></li>`;
+        return `<li><span class="t">${k + 1}.</span><span>vysadit <b>${esc(nameOf(p))}</b> <span class="sub">${esc(returnAddressOf(p))}${note}</span></span></li>`;
       });
       if (!items.length) items.push(`<li><span class="t"></span><span class="sub">${nobody ? 'nikoho nebere' : 'jede sama'}</span></li>`);
       else if (limited && !nobody) items.push(`<li><span class="t"></span><span class="sub">${roomText}</span></li>`);
@@ -235,7 +233,6 @@
       const goal = returnPlaceOf(driver);
       const extra = car.passengers.length && car.extraMin >= 1 ? ` · řidička jede o ${Math.round(car.extraMin)} min déle než přímo na svou adresu` : '';
       const route = googleRouteUrl(hallPoint, car.passengers.map(pi => returnPlaceOf(attendees[pi])), goal);
-      items.push(`<li><span class="t">cíl</span><span><b>${esc(nameOf(driver))}</b> <span class="sub">${esc(returnAddressOf(driver))}</span> ${navLink(wazeUrl(goal), 'Waze')}</span></li>`);
       html += `<div class="car" style="border-left-color:${color}"><h3>Auto ${carNo.get(car.driver)}: ${esc(nameOf(driver))} → ${dest}</h3><ol>${items.join('')}</ol>` +
         `<p class="car-foot">⏱ Celá cesta zpět: <b>${fmtDuration(car.totalMin)}</b>${extra} · ${navLink(route, 'Trasa v Google Maps')}</p></div>`;
       lines.push(`🚗 ${nameOf(driver)} (${elsewhere ? 'jinam' : 'domů'}${nobody ? ', nikoho nebere' : limited ? ', ' + roomText : ''}): ${car.passengers.map(pi => nameOf(attendees[pi])).join(' → ') || 'sama'}`);
@@ -297,5 +294,5 @@
     map.fitBounds(mapLayer.getBounds().pad(0.1));
   }
 
-  root.Common = { $, esc, uid, nameOf, STATUS, DRIVER, ATTENDING, geoHtml, setupPlan, fmtDuration, googleRouteUrl, wazeUrl };
+  root.Common = { $, esc, uid, nameOf, STATUS, DRIVER, ATTENDING, geoHtml, setupPlan, fmtDuration, googleRouteUrl };
 })(window);

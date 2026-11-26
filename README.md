@@ -89,13 +89,12 @@ Funkce `migrate` navíc doplní řádky, které starší tabulce chybí (řádek
 
 ---
 
-## Celková doba a odkazy na navigaci
+## Celková doba a odkaz na navigaci
 
-U každého auta (tam i zpět) je pod seznamem zastávek **celková doba cesty řidičky** (od výjezdu do příjezdu, včetně času na nastoupení) a odkazy:
+U každého auta (tam i zpět) je pod seznamem zastávek **celková doba cesty řidičky** (od výjezdu do příjezdu, včetně času na nastoupení) a odkaz:
 
 - **Trasa v Google Maps**: jeden odkaz s celou trasou (start, zastávky ve správném pořadí, cíl), který se na telefonu otevře v aplikaci a ukáže aktuální dopravu. Cestou tam vede z domova řidičky přes vyzvednutí do haly, cestou zpět od haly přes vysazení k adrese řidičky.
-- **Waze**: odkaz Waze umí jen jeden cíl, bez startu a zastávek, proto je u každé zastávky (vyzvednutí, vysazení, hala, cíl řidičky) malý odkaz „Waze“, který spustí navigaci právě tam.
-- Odkazy obsahují souřadnice adres, proto jsou jen na stránce a **nejsou ve zprávě do skupiny**.
+- Odkaz obsahuje souřadnice adres, proto je jen na stránce a **není ve zprávě do skupiny**.
 
 ## Jak plánovač rozhoduje
 
@@ -105,7 +104,7 @@ U každého auta (tam i zpět) je pod seznamem zastávek **celková doba cesty �
 - Pro 10–15 lidí a 3–5 aut je výsledek skoro okamžitý. Test porovnává plánovač s úplným průchodem všech možností na malých úlohách a výsledek je stejný. U velkých týmů nemusí být rozdělení do aut vždy přesně nejlepší možné.
 - Nezohledňuje spravedlivé střídání řidiček, dopravní špičky, cestu zpět ani osobní preference.
 
-Časy v plánu jsou **jen orientační** (typické doby jízdy bez aktuální dopravy). Aplikace to uvádí pod plánem a na konci zprávy do skupiny doporučuje před odjezdem zkontrolovat dopravu v Google Maps nebo Waze.
+Časy v plánu jsou **jen orientační** (typické doby jízdy bez aktuální dopravy). Aplikace to uvádí pod plánem a na konci zprávy do skupiny doporučuje před odjezdem zkontrolovat dopravu v Google Maps.
 
 Časy jízdy počítá veřejný server OSRM a adresy v lokální verzi hledá Nominatim. Obě služby jsou bez záruky dostupnosti. Když OSRM nefunguje, aplikace to oznámí a použije odhad vzdušnou čarou.
 
