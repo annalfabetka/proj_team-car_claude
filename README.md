@@ -103,7 +103,6 @@ sheet/                Google Sheet prototype
   index.html, app.js    the page that reads from the sheet
   Code.gs               script for the Google Sheet (address validation, sheet setup)
   test-code.js          tests of the script against a simulated sheet
-tabulka/, lokalni/    redirect stubs for old links (can be deleted later)
 ```
 
 Testy: `node test.js` (plánovač) a `node sheet/test-code.js` (skript tabulky).
