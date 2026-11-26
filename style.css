@@ -84,3 +84,4 @@ a.btn.primary { background: var(--accent); color: var(--accent-text); border-col
   .readonly tr[data-id] td:nth-child(6) { grid-column: 1 / 4; grid-row: 5; }
   .readonly tr[data-id] td.back:empty { display: none; }
 }
+.info + .info { margin-top: 6px; }

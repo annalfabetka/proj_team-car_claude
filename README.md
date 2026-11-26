@@ -110,6 +110,7 @@ Cesta zpět se plánuje jen tehdy, když se někdo nevrací stejně jako tam. Ji
 - **Směr řidičky je hlavní.** Cesta zpět vede od haly přes místa, kde se spolucestující vysadí, k adrese řidičky (domů nebo jinam). Zda kvůli spolucestujícím zajede až k jejich adrese, je na domluvě s řidičkou, plán je jen návrh. U auta se proto ukazuje, o kolik minut jede řidička déle než přímo.
 - **Bez časů.** U cesty zpět se zobrazuje jen pořadí zastávek.
 - Lidé, kteří se vracejí sami, se do cesty zpět nepočítají a uvolňují místo v autě.
+- Když se nikdo nevrací jinak, pod plánem je pod upozorněním k časům věta „Doprava zpět je stejná: všichni se vracejí ve stejných autech na stejné adresy jako cestou tam.“ (a ve zprávě do skupiny „Zpět jedeme stejně jako tam“). Místo ní se pak zobrazí podrobná část „Cesta zpět“.
 
 ## Struktura repozitáře
 

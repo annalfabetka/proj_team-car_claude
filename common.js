@@ -24,6 +24,9 @@
   const ATTENDING = s => s === 'must' || s === 'can' || s === 'pass';
 
   const TIMES_DISCLAIMER = 'Časy jsou jen orientační. Před odjezdem doporučujeme zkontrolovat aktuální dopravní situaci v Google Maps nebo Waze.';
+  // shown when nobody travels differently on the way back (otherwise the section 'Cesta zpět' is shown)
+  const SAME_BACK = 'Doprava zpět je stejná: všichni se vracejí ve stejných autech na stejné adresy jako cestou tam.';
+  const SAME_BACK_SHORT = 'Zpět jedeme stejně jako tam (stejná auta, stejné adresy).';
   const TIMES_DISCLAIMER_SHORT = 'Časy jsou orientační, před odjezdem zkontrolujte dopravu (Google Maps / Waze).';
 
   const $ = id => document.getElementById(id);
@@ -147,6 +150,7 @@
 
     // the times come from typical driving times: remind everyone to check live traffic before leaving
     html += `<p class="info">${esc(TIMES_DISCLAIMER)}</p>`;
+    if (!back) html += `<p class="info">${esc(SAME_BACK)}</p>`;
 
     result.cars.forEach((car, i) => {
       const driver = attendees[car.driver];
@@ -169,6 +173,7 @@
     });
 
     if (back) html += renderBack(result, attendees, back, lines);
+    else lines.push('', SAME_BACK_SHORT);
 
     lines.push('', TIMES_DISCLAIMER_SHORT);
     $('result').innerHTML = html;
