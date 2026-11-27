@@ -9,6 +9,7 @@ let cells = new Map();
 const key = (r, c) => r + ',' + c;
 const calls = { geocode: 0, alerts: [], toasts: [], frozen: null };
 let uiAnswer = 'YES';
+let noDialogs = false;   // simulates "Cannot call SpreadsheetApp.getUi() from this context"
 let triggers = [];
 let cfRules = [];
 const validations = new Map();
@@ -93,11 +94,11 @@ function validationBuilder() {
   return b;
 }
 const sandbox = {
-  console,
+  console, Logger: { log: () => {} },
   SpreadsheetApp: {
     ProtectionType: { RANGE: 'RANGE' },
     getActive: () => ss,
-    getUi: () => ({ alert: m => { calls.alerts.push(m); return uiAnswer; }, ButtonSet: { YES_NO: 1 }, Button: { YES: 'YES' }, createMenu: () => chain() }),
+    getUi: () => { if (noDialogs) throw new Error('Cannot call SpreadsheetApp.getUi() from this context.'); return ({ alert: m => { calls.alerts.push(m); return uiAnswer; }, ButtonSet: { YES_NO: 1 }, Button: { YES: 'YES' }, createMenu: () => chain() }); },
     newDataValidation: () => validationBuilder(), newConditionalFormatRule: () => ruleBuilder(),
   },
   ScriptApp: {
@@ -691,6 +692,20 @@ test('migrate() on an unknown layout changes nothing', () => {
   const before = new Map(cells);
   sandbox.migrate();
   assert.deepStrictEqual([...cells], [...before]);
+});
+
+test('migrate() and setup() also work where Google offers no dialog window (getUi throws)', () => {
+  cells = layoutCells([[key(HEADER_ROW, 2), 'Adresa'], [key(row(0), COL.NAME), 'Klára'], [key(row(0), COL.STATUS), 'Potřebuji odvoz'], [key(row(0), COL.RIDES_WITH), 'Adéla']]);
+  noDialogs = true;
+  try {
+    const toasts = calls.toasts.length;
+    sandbox.migrate();
+    assert.strictEqual(get(HEADER_ROW, COL.RETURN_WITH), 'Zpět s (pevně)', 'the migration was done');
+    assert(calls.toasts.length > toasts, 'the result is shown as a toast');
+    const before = new Map(cells);
+    sandbox.setup();   // there are players: the question cannot be asked, so nothing may be erased
+    assert.deepStrictEqual([...cells], [...before]);
+  } finally { noDialogs = false; }
 });
 
 console.log(`\nAll ${passed} tests passed.`);

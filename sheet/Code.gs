@@ -461,9 +461,31 @@ function checkNewReturnRows(sh, fromRow, toRow) {
   });
 }
 
+/**
+ * The dialog window, or a stand-in when the function runs where Google offers none (e.g. started from the script
+ * editor without the sheet open, or from a trigger). The stand-in shows the text as a toast and in the log, and it
+ * answers every question with "no", so nothing destructive can happen without a confirmation.
+ */
+function getDialogs() {
+  try {
+    return SpreadsheetApp.getUi();
+  } catch (e) {
+    var quiet = {
+      alert: function (message) {
+        Logger.log(message);
+        try { SpreadsheetApp.getActive().toast(String(message).slice(0, 200), 'Spolujízdy', 30); } catch (ignore) { /* no sheet at hand */ }
+        return 'NO_DIALOG';
+      },
+      ButtonSet: { YES_NO: 'YES_NO' },
+      Button: { YES: 'YES' },
+    };
+    return quiet;
+  }
+}
+
 function setup() {
   var ss = SpreadsheetApp.getActive();
-  var ui = SpreadsheetApp.getUi();
+  var ui = getDialogs();
   var sh = ss.getSheetByName(SHEET_NAME);
   var savedLink = '';
   if (sh) {
@@ -564,8 +586,8 @@ function onOpen() {
 function checkAll() {
   var ss = SpreadsheetApp.getActive();
   var sh = ss.getSheetByName(SHEET_NAME);
-  if (!sh) { SpreadsheetApp.getUi().alert('Nejdřív spusťte funkci „setup“.'); return; }
-  if (!layoutMatches(sh)) { SpreadsheetApp.getUi().alert(LAYOUT_MISMATCH); return; }
+  if (!sh) { getDialogs().alert('Nejdřív spusťte funkci „setup“.'); return; }
+  if (!layoutMatches(sh)) { getDialogs().alert(LAYOUT_MISMATCH); return; }
   checkRow(sh, HALL_ROW);
   var last = Math.min(sh.getLastRow(), LAST_ROW);
   if (last >= FIRST_ROW) {
@@ -584,7 +606,7 @@ function checkAll() {
 }
 
 function newMatch() {
-  var ui = SpreadsheetApp.getUi();
+  var ui = getDialogs();
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   if (!sh) { ui.alert('Nejdřív spusťte funkci „setup“.'); return; }
   if (!layoutMatches(sh)) { ui.alert(LAYOUT_MISMATCH); return; }
@@ -602,7 +624,7 @@ function newMatch() {
  * and only adds what is missing.
  */
 function migrate() {
-  var ui = SpreadsheetApp.getUi();
+  var ui = getDialogs();
   var sh = SpreadsheetApp.getActive().getSheetByName(SHEET_NAME);
   if (!sh) { ui.alert('List „' + SHEET_NAME + '“ nenalezen. Spusťte funkci „setup“.'); return; }
   installTrigger(); // the trigger handler was renamed, so always refresh it
