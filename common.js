@@ -200,7 +200,9 @@
     const arrive = (() => { const [h, m] = state.arrive.split(':').map(Number); return h * 60 + m; })();
     const hallName = state.hall.address.trim();
     const lines = [`Zápas${state.dateText ? ' ' + state.dateText : ''} – sraz v hale ${state.arrive}${hallName ? ' (' + hallName + ')' : ''}`, ''];
-    let html = `<p class="small" style="margin-top:0">${result.carCount} ${result.carCount === 1 ? 'auto' : result.carCount < 5 ? 'auta' : 'aut'}, celkem ${Math.round(result.totalDrivingMin)} minut jízdy${estimated ? ' (odhad)' : ''}.</p>`;
+    // everyone who travels: the drivers and their passengers
+    const travellers = result.cars.reduce((sum, c) => sum + 1 + c.passengers.length, 0);
+    let html = `<p class="small" style="margin-top:0">${result.carCount} ${plural(result.carCount, 'auto', 'auta', 'aut')}, ${travellers} ${plural(travellers, 'člověk', 'lidé', 'lidí')} z týmu, celkem ${Math.round(result.totalDrivingMin)} minut jízdy${estimated ? ' (odhad)' : ''}.</p>`;
 
     // the times come from typical driving times: remind everyone to check live traffic before leaving
     html += `<p class="info">${esc(TIMES_DISCLAIMER)}</p>`;
