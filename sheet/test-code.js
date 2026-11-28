@@ -565,7 +565,7 @@ const PIN_RULES = () => {   // [formula, column], the same two rules for the way
   const r = FIRST_ROW, out = [];
   [COL.RIDES_WITH, COL.RETURN_WITH].forEach(col => {
     const L = PIN_COLUMN_LETTER[col];
-    out.push(['=OR($C' + r + '="Určitě beru auto",$C' + r + '="Můžu vzít auto")', col]);
+    out.push(['=$C' + r + '="Určitě beru auto"', col]);
     out.push(['=AND($' + L + r + '<>"",COUNTIF($A$' + FIRST_ROW + ':$A$200,$' + L + r + ')=0)', col]);
   });
   return out;
@@ -593,11 +593,18 @@ test('fixed agreements: choosing a driver status clears both cells, a passenger 
   edit(r1, COL.STATUS);
   assert.strictEqual(get(r1, COL.RIDES_WITH), 'Adéla', 'a passenger keeps it');
   assert.strictEqual(get(r1, COL.RETURN_WITH), 'Pája', 'a passenger keeps it (back)');
-  cells.set(key(r2, COL.NAME), 'Pája'); cells.set(key(r2, COL.STATUS), 'Můžu vzít auto');
+  cells.set(key(r2, COL.NAME), 'Pája'); cells.set(key(r2, COL.STATUS), 'Určitě beru auto');
   cells.set(key(r2, COL.RIDES_WITH), 'Adéla'); cells.set(key(r2, COL.RETURN_WITH), 'Adéla');
   edit(r2, COL.STATUS);
-  assert.strictEqual(get(r2, COL.RIDES_WITH), '', 'a driver drives herself, so there is nothing to agree');
+  assert.strictEqual(get(r2, COL.RIDES_WITH), '', 'a sure driver drives herself, so there is nothing to agree');
   assert.strictEqual(get(r2, COL.RETURN_WITH), '');
+  const r3 = row(2);   // "Můžu vzít auto" + an agreement: she does not drive this time, the agreement stays
+  cells.set(key(r3, COL.NAME), 'Anička'); cells.set(key(r3, COL.STATUS), 'Můžu vzít auto');
+  cells.set(key(r3, COL.RIDES_WITH), 'Simír'); cells.set(key(r3, COL.RETURN_WITH), 'Simír');
+  edit(r3, COL.STATUS);
+  assert.strictEqual(get(r3, COL.RIDES_WITH), 'Simír');
+  assert.strictEqual(get(r3, COL.RETURN_WITH), 'Simír');
+  cells.delete(key(r3, COL.NAME)); cells.delete(key(r3, COL.STATUS)); cells.delete(key(r3, COL.RIDES_WITH)); cells.delete(key(r3, COL.RETURN_WITH));
 });
 test('fixed agreements: a new match clears both (they belong to one match)', () => {
   const r = row(0);

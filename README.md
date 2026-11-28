@@ -72,7 +72,7 @@ Hráčky vyplňují Google tabulku a aplikace z ní čte a plánuje. Tabulka sam
 
 **Pevné zařazení do auta (sloupce P „Tam s (pevně)“ a Q „Zpět s (pevně)“).** Když se hráčky domluví mezi sebou, že pojedou spolu, i když by plánovač zvolil jiné rozdělení (třeba kvůli větší zajížďce), spolucestující si ve sloupci P vybere jméno řidičky ze seznamu pro cestu tam. Plánovač ji pak do jejího auta zařadí **vždy**, tato řidička bude řídit a zbylé hráčky se rozdělí kolem toho. Sloupec Q platí stejně pro cestu zpět; **prázdný znamená „stejně jako tam“**, takže vyplňujete jen výjimky (např. tam s Annou, zpět s Hanou). Hráčky, které jedou jako řidičky, tyto sloupce vyplňovat nemusí (buňky se samy vyprázdní). V plánu je takový spolucestující označený „dohodnuto“, a to u cesty tam i zpět. Pokud do jednoho auta přijde víc dohod, než se vejde (tam nebo zpět), aplikace to napíše a plán nevytvoří.
 
-- Vyplňuje se jen u spolucestujících. U řidiček je políčko šedé a samo se smaže, když si zvolí stav řidičky.
+- Vyplňuje se u spolucestujících. U „Určitě beru auto“ je políčko šedé a samo se smaže (ta řidička jede svým autem). U „Můžu vzít auto“ dohoda **zůstane a platí**: hráčka tentokrát neřídí a jede s dohodnutou řidičkou (tam, případně i zpět).
 - Jméno se hledá bez ohledu na velikost písmen a diakritiku. Zmizí-li řidička ze seznamu nebo nejede jako řidička, plán dohodu **ignoruje a řekne to**. Oranžové políčko upozorní na jméno, které už v tabulce není.
 - Když je do jednoho auta zařazeno víc lidí, než se vejde, plán se nespočítá a ohlásí, kolik se vejde.
 - Zajížďka řidičky se u pevně zařazené osoby neomezuje (limit zajížďky platí jen pro ostatní), je to na dohodě.

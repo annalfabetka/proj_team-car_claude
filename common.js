@@ -128,7 +128,7 @@
       const ignoredPins = [];
       attendees.forEach((p, i) => {
         const wanted = (p.ridesWithName || '').trim();
-        if (!wanted || DRIVER(p.status)) return;
+        if (!wanted || p.status === 'must') return;   // "Můžu vzít auto" + an agreement = she does not drive this time
         const d = driverIndex.get(nameKey(wanted));
         if (d == null) ignoredPins.push(`${nameOf(p)} (${wanted})`); else ridesWith[i] = d;
       });
@@ -138,7 +138,7 @@
       const ignoredBack = [];
       attendees.forEach((p, i) => {
         const wanted = (p.returnWithName || '').trim();
-        if (!wanted || DRIVER(p.status) || p.returnMode === 'self') return;
+        if (!wanted || p.status === 'must' || p.returnMode === 'self') return;
         const d = driverIndex.get(nameKey(wanted));
         if (d == null) ignoredBack.push(`${nameOf(p)} (${wanted})`); else returnWithIdx[i] = d;
       });

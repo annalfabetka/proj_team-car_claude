@@ -217,14 +217,14 @@ function formulaRule(formula, ranges, background, font) {
   return b.build();
 }
 
-/** Colours (both columns): grey for drivers (they drive themselves), orange when the name is no longer in the list. */
+/** Colours (both columns): grey for sure drivers (they drive themselves), orange when the name is no longer in the list. */
 function pinRules(sh) {
   var r = FIRST_ROW, names = '$A$' + FIRST_ROW + ':$A$' + LAST_ROW;
   var rules = [];
   PIN_COLUMNS.forEach(function (col) {
     var range = [sh.getRange(FIRST_ROW, col, LAST_ROW - FIRST_ROW + 1, 1)];
     var cell = '$' + COLUMN_LETTER[col] + r;
-    rules.push(formulaRule('=' + driverCondition(), range, '#eceef2', null));
+    rules.push(formulaRule('=$C' + r + '="' + DRIVER_STATUSES[0] + '"', range, '#eceef2', null));   // "Můžu vzít auto" + a name = she rides this time
     rules.push(formulaRule('=AND(' + cell + '<>"",COUNTIF(' + names + ',' + cell + ')=0)', range, '#ffe8b3', null));
   });
   return rules;
@@ -241,13 +241,13 @@ function applyPinColumn(sh) {
   sh.setColumnWidth(COL.RETURN_WITH, 170);
 }
 
-/** A driver drives herself, so both "rides with" cells of players whose status says they drive are cleared. */
+/** A sure driver drives herself, so both "rides with" cells of players with "Určitě beru auto" are cleared. "Můžu vzít auto" keeps them: she rides with that driver this time. */
 function clearPinsOfDrivers(sh, fromRow, toRow) {
   if (toRow < fromRow) return 0;
   var values = sh.getRange(fromRow, COL.STATUS, toRow - fromRow + 1, COL.RETURN_WITH - COL.STATUS + 1).getValues();
   var cleared = 0;
   values.forEach(function (v, i) {
-    if (DRIVER_STATUSES.indexOf(String(v[0])) === -1) return;
+    if (String(v[0]) !== DRIVER_STATUSES[0]) return;
     var any = false;
     PIN_COLUMNS.forEach(function (col) {
       if (String(v[col - COL.STATUS]) !== '') { sh.getRange(fromRow + i, col).clearContent(); any = true; }
